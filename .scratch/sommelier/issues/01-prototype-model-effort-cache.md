@@ -6,10 +6,14 @@
 
 **Status:** ready-for-agent
 
-- [ ] (a) `turn.step` 改 `model` 生效，同一輪多個請求都套用，subagent（帶 `agentId`）不受影響
-- [ ] (b) 在 opus 上只改 `effort`（medium → high）時，下一個請求的 `cache_read_input_tokens` 沒有歸零；結論記入 spec
+- [x] (a) `turn.step` 改 `model` 生效，同一輪多個請求都套用，subagent（帶 `agentId`）不受影響
+- [x] (b) 在 opus 上只改 `effort`（medium → high）時，下一個請求的 `cache_read_input_tokens` 沒有歸零；結論記入 spec
 - [ ] (c) 送出 prompt 時 Claude 仍在工作（排隊）的情況下，`turnId` 與判斷結果對應正確
-- [ ] (f) 從 `turn.step` 的結果拿得到每個請求的 cache 讀寫 token；實測「切到另一模型幾輪再切回」時的 cache 命中，結果記入 spec Further Notes
-- [ ] (i) 在 `turn.step` 等待 3 秒不會觸到 hook 時限
-- [ ] (j) 在 `turn.start` 發出的非同步工作（以 3 秒延遲模擬 Jev）能在第一個請求前完成並套用 effort
-- [ ] 自動化測試涵蓋：同輪多請求同檔位、`agentId` 放行
+- [x] (f) 從 `turn.step` 的結果拿得到每個請求的 cache 讀寫 token；實測「切到另一模型幾輪再切回」時的 cache 命中，結果記入 spec Further Notes
+- [x] (i) 在 `turn.step` 等待 3 秒不會觸到 hook 時限
+- [x] (j) 在 `turn.start` 發出的非同步工作（以 3 秒延遲模擬 Jev）能在第一個請求前完成並套用 effort
+- [x] 自動化測試涵蓋：同輪多請求同檔位、`agentId` 放行
+
+## Comments
+
+- 2026-10-13：spike 完成（`/somm proto`，commit 3747ea0）。以 `claude -p --plugin-dir` 實測 (a)(b)(f)(i)(j) 通過，結果寫入 spec「開發順序」與「cache 帳」。新發現：`turn.step` 只接受完整模型 ID。依實測改為逐句判斷＋cache 帳（ADR 0002）。剩 (c) 需要在互動 session 中於 Claude 工作時送出第二句驗證。
