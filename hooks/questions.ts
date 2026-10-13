@@ -1,5 +1,8 @@
-{
-  "_note": "sommelier 送給 Jev 的三題（spec「Jev 請求」）。離線評測與 mod 共用這份定義；ticket 04 起 mod 以同樣內容建立請求。",
+// The three questions sommelier asks Jev (docs/spec.md「Jev 請求」).
+// Single source of truth: eval/run_eval.py reads the JSON literal below, so keep
+// it valid JSON (double quotes, no trailing commas) between the markers.
+// BEGIN JEV QUESTIONS
+export const JEV = {
   "model": "jev-1.13.0",
   "questions": {
     "depth": {
@@ -22,3 +25,4 @@
     }
   }
 }
+// END JEV QUESTIONS

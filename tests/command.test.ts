@@ -1,4 +1,4 @@
-import { expect, test } from 'claude-code/testing'
+import { expect, mock, test } from 'claude-code/testing'
 
 test('/somm is registered and answers', async ($, on) => {
   const registered: string[] = []
@@ -7,12 +7,14 @@ test('/somm is registered and answers', async ($, on) => {
     registered.push(e.name)
     return { value: undefined }
   })
+  on('store.get', () => ({ value: undefined }))
+  mock.env(on, {})
 
   await $.session.start({ surface: 'terminal', isInteractive: true, cwd: '/work' })
   expect(registered).toEqual(['somm'])
 
   const answer = await $.command.run({ command: 'somm', args: 'status' })
-  expect(answer.text).toContain('not implemented')
+  expect(answer.text).toContain('sommelier')
 })
 
 test('falls back to /sommelier when /somm is taken', async ($, on) => {

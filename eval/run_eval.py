@@ -2,7 +2,9 @@
 """sommelier 離線評測：直接打 Jev，量三題的判斷品質與延遲（ticket 03）。
 
 用法：
-  TYPESAFE_API_KEY=... python3 eval/run_eval.py [--questions eval/questions.json] [--tag 名稱]
+  TYPESAFE_API_KEY=... python3 eval/run_eval.py [--tag 名稱]
+
+題目讀自 hooks/questions.ts（mod 與評測共用同一份定義）。
 
 輸出：
   eval/results/<時間>-<tag>.json   每題原始回應（題庫是合成的，可以進版控）
@@ -29,6 +31,13 @@ PROFILES = {
     "品質優先": {"t_opus": 0.25, "t_sonnet": 0.2, "t_new": 0.8, "t_risk": 0.4},
 }
 MODELS = ["haiku", "sonnet", "opus"]
+
+
+def load_questions(path):
+    """讀 hooks/questions.ts 中 BEGIN／END 標記之間的 JSON 字面值。"""
+    text = path.read_text()
+    block = text.split("// BEGIN JEV QUESTIONS", 1)[1].split("// END JEV QUESTIONS", 1)[0]
+    return json.loads(block.split("=", 1)[1])
 
 
 def ask(key, model, questions, item):
@@ -71,7 +80,7 @@ def pct(n, d):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--questions", default=str(HERE / "questions.json"))
+    ap.add_argument("--questions", default=str(HERE.parent / "hooks" / "questions.ts"))
     ap.add_argument("--dataset", default=str(HERE / "dataset.jsonl"))
     ap.add_argument("--tag", default="baseline")
     ap.add_argument("--workers", type=int, default=4)
@@ -80,7 +89,7 @@ def main():
     key = os.environ.get("TYPESAFE_API_KEY")
     if not key:
         raise SystemExit("TYPESAFE_API_KEY is not set")
-    qdef = json.loads(Path(args.questions).read_text())
+    qdef = load_questions(Path(args.questions))
     items = [json.loads(line) for line in Path(args.dataset).read_text().splitlines() if line.strip()]
 
     def run(item):
