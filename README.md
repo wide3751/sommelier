@@ -1,4 +1,6 @@
-# 🍷 sommelier
+<p align="center">
+  <img src="assets/logo/logo.png" alt="sommelier" width="420">
+</p>
 
 [English](README.en.md)
 

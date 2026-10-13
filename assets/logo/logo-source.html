@@ -1,0 +1,27 @@
+<!doctype html><meta charset="utf-8">
+<link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display&display=block" rel="stylesheet">
+<style>
+html,body{margin:0;background:transparent}
+body{padding:10px;display:inline-block}
+.b{display:inline-flex;flex-direction:column;align-items:center;padding:16px 30px 14px;border-radius:22px;background:#8E2A4A}
+.w{font-family:'DM Serif Display',serif;color:#FBEAF0;font-size:76px;line-height:.95;white-space:nowrap;letter-spacing:-.5px}
+.i{position:relative;display:inline-block}
+.i svg{position:absolute;left:50%;top:-.03em;width:.25em;height:.33em;transform:translateX(-50%)}
+.u{display:block;margin-top:8px}
+/* illustrated */
+.ill .b{background:linear-gradient(160deg,#A93A60 0%,#8E2A4A 45%,#5E1530 100%);box-shadow:inset 0 2px 0 rgba(255,255,255,.18),inset 0 -3px 0 rgba(0,0,0,.18),0 10px 24px rgba(75,21,40,.28)}
+.ill .w{background:linear-gradient(180deg,#FFFFFF 0%,#FBEAF0 55%,#F1C8D6 100%);-webkit-background-clip:text;color:transparent;text-shadow:none;filter:drop-shadow(0 2px 0 rgba(60,10,30,.35))}
+/* hand-drawn */
+.hd .b{filter:url(#rough)}
+</style>
+<svg width="0" height="0" style="position:absolute"><filter id="rough"><feTurbulence type="fractalNoise" baseFrequency="0.03" numOctaves="2" seed="5"/><feDisplacementMap in="SourceGraphic" scale="5"/></filter></svg>
+<div id="root"></div>
+<script>
+const style=new URLSearchParams(location.search).get('s')||'flat';
+const ill=style==='ill';
+const drop=`<svg viewBox="0 0 10 13"><path d="M5 0C5 0 0 6 0 8.5A5 5 0 0 0 10 8.5C10 6 5 0 5 0Z" fill="${ill?'#F7CFDC':'#F4C0D1'}"/></svg>`;
+const tie=`<path d="M152 18 C145 11 136 8 132 9 C130 15 130 21 132 27 C136 28 145 25 152 18Z" fill="#FBEAF0"/><path d="M152 18 C159 11 168 8 172 9 C174 15 174 21 172 27 C168 28 159 25 152 18Z" fill="#FBEAF0"/><rect x="147" y="13" width="10" height="10" rx="3" fill="#F4C0D1" stroke="#8E2A4A" stroke-width="1.5"/>`;
+const u=`<svg class="u" viewBox="0 0 300 36" width="330" height="40"><path d="M6 18H128" stroke="#FBEAF0" stroke-width="3" stroke-linecap="round"/>${tie}<path d="M174 18C190 18 196 6 214 6H294" fill="none" stroke="#9FE1CB" stroke-width="3" stroke-linecap="round"/><path d="M174 18H294" stroke="#CECBF6" stroke-width="3" stroke-linecap="round"/><path d="M174 18C190 18 196 30 214 30H294" fill="none" stroke="#F4C0D1" stroke-width="3" stroke-linecap="round"/></svg>`;
+document.body.className=ill?'ill':style==='hd'?'hd':'';
+document.getElementById('root').innerHTML=`<div class="b"><div class="w">sommel<span class="i">ı${drop}</span>er</div>${u}</div>`;
+</script>
