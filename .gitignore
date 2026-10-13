@@ -5,3 +5,4 @@ node_modules/
 *.log
 # Exported routing records may contain prompt excerpts
 exports/
+somm-proto-log.jsonl
