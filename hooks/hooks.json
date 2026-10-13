@@ -1,0 +1,4 @@
+{
+  "description": "sommelier hooks module",
+  "modules": ["./register.ts"]
+}

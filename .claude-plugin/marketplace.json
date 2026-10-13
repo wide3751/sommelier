@@ -1,0 +1,14 @@
+{
+  "name": "sommelier",
+  "description": "Marketplace for the sommelier Claude Code plugin.",
+  "owner": {
+    "name": "wide3751"
+  },
+  "plugins": [
+    {
+      "name": "sommelier",
+      "source": "./",
+      "description": "Picks the model and effort for each Claude Code task using TypeSafe Jev judgments."
+    }
+  ]
+}
