@@ -1,44 +1,116 @@
-# sommelier
+# 🍷 sommelier
 
-A Claude Code plugin (mod) that picks the model and effort for each task, the way a sommelier picks a wine for each dish. It asks [TypeSafe Jev](https://docs.typesafe.ai) three questions per new request — reasoning depth, whether it starts a new task, whether it is high risk — and maps the answer onto a configurable ladder:
+[English](README.en.md)
 
-| Depth | Default rung |
-|---|---|
-| L0 lookup / mechanical edit | haiku · medium |
-| L1 clear, well-specified task | sonnet · medium |
-| L2 needs investigation or trade-offs | `base` (opus · medium) |
-| L3 unbounded / deep, or "ultrathink" | opus · high |
+依任務替 Claude Code 挑選「模型 · effort」的 plugin（mod）。
 
-Upgrades happen any time and stick until the task ends. Downgrades happen only when the prompt cache would be rebuilt anyway (session start, after `/clear` or `/compact`, after resume, after idling past the cache TTL) or while the conversation is still short.
+就像侍酒師依菜色挑酒，sommelier 在你送出每個新請求時，請 [TypeSafe Jev](https://docs.typesafe.ai) 判斷三件事：**需要多深的推理**、**是不是新話題**、**是不是高風險操作**，再對應到一張可調整的階梯表：
 
-> Status: design done, prototype not started. See [docs/spec.md](docs/spec.md) and [docs/plan.png](docs/plan.png).
+| 推理深度 | 預設檔位 | 例子 |
+|---|---|---|
+| L0 查詢或機械性修改 | haiku · medium | 「看一下 package.json 的 version」 |
+| L1 目標和做法都明確 | sonnet · medium | 「幫 parseDate 加上時區參數」 |
+| L2 要先調查或取捨 | `base`（opus · medium） | 「登入偶爾 401，找出原因」 |
+| L3 沒有明確邊界、需要長時間推演 | opus · high | 「設計多租戶權限架構」 |
 
-## Requirements
+**為什麼不每輪都換模型？** 每個模型各有一份 prompt cache，換模型就要把整段對話重新寫入 cache，同樣消耗額度。所以 sommelier 的原則是：**往上升隨時可以；往下降只在划算時才做**，也就是新話題、而且切換成本低於能省下的額度時。設計細節見 [docs/spec.md](docs/spec.md) 與 [docs/plan.png](docs/plan.png)。
 
-- Claude Code v2.1.287 or later (mods support)
-- A TypeSafe API key
+## 目前進度
 
-## Install (local marketplace)
+> 開發中。目前能用的是「session 第一句話由 Jev 判斷，之後各輪沿用」的最小版本。
+
+| | 功能 | 狀態 |
+|---|---|---|
+| ✅ | 平台驗證：改模型與 effort、cache 量測 | 完成（ticket 01） |
+| ✅ | 離線評測：40 題標註題庫，嚴重錯誤率 0 | 完成（ticket 03） |
+| ✅ | 第一輪依 Jev 分派、失敗或逾時就不改 | 完成（ticket 04） |
+| ⏳ | 狀態事件驗證：手動 `/model`、`/clear`、resume | 進行中（ticket 02） |
+| 🔜 | 逐句判斷與 cache 帳、覆寫 `somm:`、隱私保護、設定、pane | 規劃中（ticket 05–13） |
+
+全部 ticket 在 [.scratch/sommelier/issues/](.scratch/sommelier/issues/)。
+
+## 需求
+
+- Claude Code **v2.1.287 以上**（終端機），或 Desktop app 內建版本 **v2.1.286 以上**（在 Code tab 輸入 `/status` 查看）
+- TypeSafe API key
+
+## 安裝
+
+1. 加入本機 marketplace 並安裝：
 
 ```bash
 claude plugin marketplace add ~/Projects/sommelier
+```
+
+```bash
 claude plugin install sommelier@sommelier
 ```
 
-Off by default. Turn it on in a session with `/somm on`.
-
-## Usage
-
-- `/somm on|off|status|export|config` — `/somm` alone opens the pane
-- `/somm off --project` — never send anything from this repo
-- Prefix a prompt with `somm:opus`, `somm:sonnet:high`, `somm:haiku` to pin this task's rung, or `somm:auto` to declare a new task
-
-## Development
+2. 設定 TypeSafe API key（存進 macOS Keychain）。終端機版可以在 session 裡執行 `/plugin configure sommelier@sommelier`；Desktop app 的 Code tab 不會跳出輸入框，請改在終端機執行：
 
 ```bash
-claude --plugin-dir ~/Projects/sommelier   # load for one session, hot-reloads on save
+printf '{"typesafe_api_key":"%s"}' "$TYPESAFE_API_KEY" | claude plugin configure sommelier@sommelier --values-stdin
+```
+
+   執行前要確認目前的 shell 讀得到 `TYPESAFE_API_KEY`（例如新開一個終端機視窗）。也可以只設定環境變數 `TYPESAFE_API_KEY` 當作備援，但從 Dock 開啟的 Desktop app 讀不到 `~/.zshrc`。
+
+3. 重新啟動 Claude Code，輸入 `/somm status`，確認顯示「API key 已設定」。
+
+## 使用
+
+預設是**關閉**的。
+
+| 指令 | 說明 |
+|---|---|
+| `/somm on` | 開啟。接下來你送出的第一句話會交給 Jev 判斷 |
+| `/somm off` | 關閉，沿用 session 自己的模型與 effort |
+| `/somm status` | 顯示開關、API key 是否設定、本 session 的檔位 |
+| `/somm log [n]` | 最近 n 筆分派紀錄：選了哪個檔位、Jev 的機率、cache 讀寫量 |
+
+`/somm` 如果被其他 plugin 占用，會自動改用 `/sommelier`。
+
+**以下情況 sommelier 不會改動模型：**
+- 關閉時
+- Jev 逾時（1.5 秒）、回傳錯誤，或沒有設定 API key
+- subagent 的請求
+
+**隱私**：開啟後，每次判斷會把「這一句」和「最近 3 輪對話的文字」送到 TypeSafe，不包含檔案內容與工具輸出。送出前遮蔽密鑰、依專案停用等功能規劃在 ticket 09。
+
+## 開發
+
+```bash
+claude --plugin-dir ~/Projects/sommelier   # 載入開發中的版本，存檔後自動重新載入
 claude plugin validate ~/Projects/sommelier
 cd ~/Projects/sommelier && claude plugin test
 ```
 
-Docs: [spec](docs/spec.md) · [glossary](GLOSSARY.md) · [ADRs](docs/adr/)
+正式安裝的版本會依 `plugin.json` 的 `version` 快取一份副本。改了程式碼後要先把版本號加一，再重新安裝，改動才會生效。開發時建議用 `--plugin-dir`。
+
+**離線評測**：不經過 Claude Code，直接呼叫 Jev，量測判斷品質與延遲：
+
+```bash
+TYPESAFE_API_KEY=... python3 eval/run_eval.py --tag 名稱
+```
+
+題目定義只有一份，放在 [hooks/questions.ts](hooks/questions.ts)，mod 和評測腳本共用。題庫在 [eval/dataset.jsonl](eval/dataset.jsonl)，報告輸出到 `eval/reports/`。
+
+## 專案結構
+
+```
+hooks/
+  register.ts    mod 進入點：指令、turn 事件、呼叫 Jev（所有 $ 呼叫都在這裡）
+  decide.ts      分派邏輯：階梯表與累積機率規則（純函式）
+  jevState.ts    組成送給 Jev 的對話內容（只取文字、保留結尾）
+  questions.ts   送給 Jev 的三題定義
+tests/           claude plugin test 的自動化測試
+eval/            離線評測題庫、腳本與報告
+docs/            spec、計劃圖、ADR
+GLOSSARY.md      領域用語
+```
+
+## 文件
+
+- [spec](docs/spec.md)：完整設計
+- [GLOSSARY.md](GLOSSARY.md)：用語定義（檔位、新話題、cache 帳…）
+- [ADR 0001](docs/adr/0001-route-via-mod-turn-step.md)：為什麼用 mod 的 `turn.step` 換模型
+- [ADR 0002](docs/adr/0002-per-sentence-routing-with-cache-ledger.md)：為什麼改成逐句判斷加上 cache 帳
