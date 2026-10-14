@@ -6,15 +6,16 @@
 // failures keep the current rung. Ticket 09 (privacy): consent before the first
 // send, redaction, per-project off. Ticket 06 (guards): a model the user picked,
 // an automatic fallback or an unsupported session model is left alone; turns the
-// user did not start and slash commands keep the current rung. Overrides and the
-// full UI arrive in later tickets.
+// user did not start and slash commands keep the current rung. Ticket 07: asking
+// for deep thought (ultrathink, 仔細想, 深入想) goes to opus · high without
+// asking Jev. Overrides and the full UI arrive in later tickets.
 //
 // Every mods API call stays in this file (validation forbids passing `$` to an
 // imported function); the routing logic itself lives in decide.ts / jevState.ts /
 // redact.ts.
 
 import { JEV } from './questions.ts'
-import { DEFAULT_TURN, USER_ORIGINS, cacheTtl, isShortReply, isSlashCommand, isSupportedModel, ledgerEntry, markCold, modelId, modelLabel, qualityGuard, route, shortModel } from './decide.ts'
+import { DEFAULT_TURN, USER_ORIGINS, asksDeepThought, cacheTtl, isShortReply, isSlashCommand, isSupportedModel, ledgerEntry, markCold, modelId, modelLabel, qualityGuard, route, routeDeepThought, shortModel } from './decide.ts'
 import { buildJevState } from './jevState.ts'
 import { redact } from './redact.ts'
 
@@ -38,6 +39,7 @@ const REASON_LABEL = {
   upgrade: '升級', downgrade: '降級', hold: '沿用', continuation: '沿用', cost_blocked: '換模型不划算，沿用',
   quality_guard: '對話太長，改用 sonnet', project_off: '專案停用', consent_declined: '未同意送出', consent_unanswered: '尚未確認送出',
   manual: '手動指定', fallback: '自動 fallback', unsupported_session_model: '不支援的模型', slash_command: '沿用',
+  ultrathink: '要求深入思考',
 }
 const EVENT_CAP = 20
 
@@ -213,6 +215,13 @@ async function decideTurn($, e) {
   // contextTokens is absent before the session's first response: nothing is
   // cached yet, so any switch is free.
   const contextTokens = (await $.session.usage()).context.tokens ?? 0
+  if (skipped.get(e.turnId) === 'ultrathink') {
+    const r = routeDeepThought({ current: currentRung, session: { model: shortModel(e.model), effort: e.effort ?? 'medium' } })
+    // It stands for a judgement: the next sentence is not a session's first.
+    judgedTurns += 1
+    currentRung = r.current
+    return { rung: r.rung, reason: r.reason, level: r.level, contextTokens }
+  }
   const p = pending.get(e.turnId)
   if (!p) return keep(skipped.get(e.turnId) ?? 'continuation', contextTokens)
   pending.delete(e.turnId)
@@ -405,6 +414,7 @@ export function register(on, options) {
     note('turn.start ' + e.turnId + ' origin=' + origin + ' session.model=' + sessionModel + (isSlashCommand(e.text) ? ' slash' : ''))
     if (origin && !USER_ORIGINS.includes(origin)) skipped.set(e.turnId, 'continuation')
     else if (isSlashCommand(e.text)) skipped.set(e.turnId, 'slash_command')
+    else if (asksDeepThought(e.text)) skipped.set(e.turnId, 'ultrathink')
     // A full id outside the 5.5 family is not routed, so nothing is sent; an
     // alias waits for turn.step's full id.
     const unsupported = sessionModel && sessionModel.startsWith('claude-') && !isSupportedModel(sessionModel)

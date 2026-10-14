@@ -135,6 +135,8 @@ If another plugin already uses `/somm`, the command falls back to `/sommelier`.
 
 **How each request is decided:**
 - **Upgrade**: whenever a request needs a stronger model or higher effort, it moves up
+- **High risk**: a request that deletes or overwrites data, or changes production or permissions, moves to at least base (opus by default), with high effort for that request only
+- **Asking for deep thought**: a prompt containing `ultrathink`, 「仔細想」 or 「深入想」 (not inside code) goes straight to opus · high without asking Jev
 - **Downgrade**: only on a new topic, and only when the expected saving beats the cost of rewriting the cache; otherwise that request keeps the current model
 - **Keep**: on the same topic when the judgment is lower, on short replies ("ok", "continue"; not sent to Jev), and when Jev times out or errors, the current model stays
 - **No haiku for long conversations**: a conversation over 30k tokens is not moved down to haiku, and one already on haiku moves to sonnet once it grows past that

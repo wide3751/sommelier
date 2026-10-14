@@ -43,6 +43,14 @@ export function isShortReply(text) {
   return [...bare].length <= SHORT_REPLY_CHARS || CONTINUATION_WORDS.includes(bare)
 }
 
+// Asking for deep thought by name (docs/spec.md「由程式判斷、不送 Jev」): the
+// whole word ultrathink, or 仔細想／深入想, outside code. Fenced blocks and
+// inline code are dropped first, so a pasted snippet never triggers it.
+export function asksDeepThought(text) {
+  const prose = String(text).replace(/```[\s\S]*?(```|$)/g, ' ').replace(/`[^`\n]*`/g, ' ')
+  return /(^|[^\p{L}\p{N}_])ultrathink(?![\p{L}\p{N}_])/iu.test(prose) || /仔細想|深入想/.test(prose)
+}
+
 function rungAt(level, ladder, base) {
   return ladder[level] ?? base
 }
@@ -194,6 +202,16 @@ export function switchCost(from, to, contextTokens, cold, turn = DEFAULT_TURN, t
 // Haiku is kept to short conversations; a longer one moves to sonnet.
 export function qualityGuard(rung, contextTokens, cfg = BALANCED) {
   return rung && rung.model === 'haiku' && (contextTokens ?? 0) > cfg.haikuMaxCtx ? { model: 'sonnet', effort: 'medium' } : null
+}
+
+// A turn that asked for deep thought goes to L3 without asking Jev. It can
+// only move up, so there is nothing to weigh: an upgrade that sticks like any
+// other, or the current rung when that is already as high.
+export function routeDeepThought(s, ladder = DEFAULT_LADDER, base = DEFAULT_BASE) {
+  const target = { ...rungAt(3, ladder, base) }
+  const from = s.current ?? s.session
+  const next = compareRung(target, from) > 0 ? target : s.current
+  return { rung: next ?? from, current: next, reason: 'ultrathink', level: 3 }
 }
 
 // One sentence's routing (docs/spec.md「分派決策」8–11).
