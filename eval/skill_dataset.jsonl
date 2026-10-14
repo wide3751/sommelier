@@ -1,0 +1,16 @@
+{"id": "k01", "current_request": "幫 parseDate 加上時區參數，先寫失敗的測試再實作", "recent_turns": [], "expect": {"skill": "tdd"}}
+{"id": "k02", "current_request": "我想把快取改成 write-through，你先狠狠質疑一下這個計畫", "recent_turns": [], "expect": {"skill": "grilling"}}
+{"id": "k03", "current_request": "登入 API 偶爾回 401，幫我查原因", "recent_turns": [], "expect": {"skill": "diagnosing-bugs"}}
+{"id": "k04", "current_request": "review 一下這個分支從 main 分出來之後的改動", "recent_turns": [], "expect": {"skill": "code-review"}}
+{"id": "k05", "current_request": "rebase 到 main 之後 register.ts 有衝突，幫我解", "recent_turns": [], "expect": {"skill": "resolving-merge-conflicts"}}
+{"id": "k06", "current_request": "把這季的數字做成 10 頁的簡報", "recent_turns": [], "expect": {"skill": "pptx"}}
+{"id": "k07", "current_request": "「話題」跟「任務」這兩個詞在我們專案裡到底差在哪？幫我定下來寫進詞彙表", "recent_turns": [], "expect": {"skill": "domain-modeling"}}
+{"id": "k08", "current_request": "這個 payments 模組介面太淺了，怎麼重新切邊界比較好測？", "recent_turns": [], "expect": {"skill": "codebase-design"}}
+{"id": "k09", "current_request": "幫我改 CLAUDE.md，加一段 commit 訊息的規範", "recent_turns": [], "expect": {"skill": "writing-for-agents"}}
+{"id": "k10", "current_request": "看一下 package.json 的 version", "recent_turns": [], "expect": {"skill": null}}
+{"id": "k11", "current_request": "把 README 第 3 行的 teh 改成 the", "recent_turns": [], "expect": {"skill": null}}
+{"id": "k12", "current_request": "解釋一下這段 reduce 在做什麼", "recent_turns": [], "expect": {"skill": null}}
+{"id": "k13", "current_request": "現在在哪個 branch？", "recent_turns": [], "expect": {"skill": null}}
+{"id": "k14", "current_request": "好，那補一個跨日的測試案例", "recent_turns": [{"role": "user", "text": "幫 parseDate 加上時區參數"}, {"role": "assistant", "text": "加好了，parseDate(str, tz) 預設 UTC。要補測試嗎？"}], "expect": {"skill": null}}
+{"id": "k15", "current_request": "run npm test and tell me how many fail", "recent_turns": [], "expect": {"skill": null}}
+{"id": "k16", "current_request": "開始寫測試吧，照 red-green-refactor 一個一個來", "recent_turns": [{"role": "user", "text": "我們來做 formatMoney 的幣別支援"}, {"role": "assistant", "text": "好，我建議先支援 TWD、USD、JPY，小數位依幣別決定。要從哪裡開始？"}], "expect": {"skill": "tdd"}}

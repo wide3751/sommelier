@@ -35,6 +35,7 @@ const EFFORT_ORDER = ['low', 'medium', 'high', 'xhigh', 'max']
 // ticket 12 dropped the finer modes.
 export const DEFAULT_SETTINGS = {
   base: DEFAULT_BASE, profile: 'balanced', allowed: { min: 'haiku', max: 'opus' }, spinner: 'on', notify: 'important',
+  skills: 'on', skillsAllow: [], skillsExclude: [],
 }
 
 // What the routing functions read: thresholds, base, allowed range and ladder.
@@ -100,7 +101,20 @@ export function applySetting(settings, name, value) {
     if (v !== 'important' && v !== 'off') return { error: 'notify 要是 important 或 off' }
     return { settings: { ...s, notify: v } }
   }
-  return { error: '沒有這個設定：' + name + '。可用 enabled、base、profile、allowed、spinner、notify' }
+  if (name === 'skills') {
+    if (v !== 'on' && v !== 'off') return { error: 'skills 要是 on 或 off' }
+    return { settings: { ...s, skills: v } }
+  }
+  if (name === 'skills-allow') return { settings: { ...s, skillsAllow: parseNames(v) } }
+  if (name === 'skills-exclude') return { settings: { ...s, skillsExclude: parseNames(v) } }
+  return { error: '沒有這個設定：' + name + '。可用 enabled、base、profile、allowed、spinner、notify、skills、skills-allow、skills-exclude' }
+}
+
+// A skill list as typed: names split by commas or spaces; empty, `-` or
+// `none` clears it.
+function parseNames(value) {
+  if (value === '' || value === '-' || value.toLowerCase() === 'none') return []
+  return [...new Set(value.split(/[\s,，、]+/).filter(Boolean))]
 }
 
 export function describeSettings(settings) {
@@ -111,6 +125,9 @@ export function describeSettings(settings) {
     'allowed ' + s.allowed.min + '-' + s.allowed.max,
     'spinner ' + s.spinner,
     'notify ' + s.notify,
+    'skills ' + s.skills,
+    'skills-allow ' + (s.skillsAllow.length ? s.skillsAllow.join(',') : '（全部）'),
+    'skills-exclude ' + (s.skillsExclude.length ? s.skillsExclude.join(',') : '（無）'),
   ]
 }
 
@@ -366,4 +383,63 @@ export function route(answers, s, cfg = DEFAULT_CONFIG) {
   }
   const rung = d.highRisk ? { ...(next ?? from), effort: 'high' } : next
   return { rung, current: next, reason, newTopic, level: d.level, highRisk: d.highRisk, newTask: d.newTask, cost }
+}
+
+// skill 提示 (#27): when a skill fits the sentence well enough, Claude is told
+// so beside the prompt. Only a suggestion; it never touches the rung.
+export const SKILL_THRESHOLDS = { needs: 0.3, top: 0.5 }
+// A choice question takes at most 255 options.
+export const SKILL_CHOICE_MAX = 255
+export const SKILL_DESCRIPTION_CHARS = 300
+
+// 候選 skill: the skills the model's listing carries (the context breakdown's
+// names, so ones Claude cannot call are already left out) that have a
+// description in the command list, narrowed by the allow list and then the
+// exclude list. Sorted by name, so a cut past SKILL_CHOICE_MAX is stable.
+export function skillCandidates(listed, commands, allow = [], exclude = []) {
+  const described = new Map()
+  for (const c of commands) {
+    const text = (c.description ?? '').trim()
+    if (text && !described.has(c.name)) described.set(c.name, text)
+  }
+  const names = [...new Set(listed)]
+    .filter((n) => described.has(n) && (!allow.length || allow.includes(n)) && !exclude.includes(n))
+    .sort()
+  return {
+    candidates: names.slice(0, SKILL_CHOICE_MAX).map((name) => ({ name, description: described.get(name).slice(0, SKILL_DESCRIPTION_CHARS) })),
+    dropped: Math.max(0, names.length - SKILL_CHOICE_MAX),
+  }
+}
+
+// The two skill questions for these candidates; null when there are too few
+// to choose between.
+export function skillQuestions(template, candidates) {
+  if (candidates.length < 2) return null
+  return {
+    needs_skill: template.needs_skill,
+    skill: { ...template.skill, criteria: Object.fromEntries(candidates.map((c) => [c.name, c.description])) },
+  }
+}
+
+// What Jev's skill answers say: the likeliest skill and both probabilities,
+// and the skill to hint, if any. A skill already hinted on this topic is not
+// hinted again.
+export function pickSkill(answers, hinted = [], t = SKILL_THRESHOLDS) {
+  const needs = answers && answers.needs_skill ? answers.needs_skill.noul : null
+  const probs = answers && answers.skill ? answers.skill.probabilities : null
+  if (needs == null || !probs) return null
+  const [top, topProb] = Object.entries(probs).sort((a, b) => b[1] - a[1])[0] ?? [null, 0]
+  if (!top) return null
+  const hint = needs >= t.needs && topProb >= t.top && !hinted.includes(top) ? top : null
+  return { needs, top, topProb, hint }
+}
+
+// The text Claude reads beside the prompt.
+export function skillHintText(name) {
+  return '[sommelier] 自動判斷這個請求可能適合 skill「' + name + '」（可能有誤）。適用的話先用 Skill 工具載入；不適用就忽略這段，也不用提到它。'
+}
+
+// How the spinner names a skill: a plugin's prefix is dropped.
+export function skillLabel(name) {
+  return String(name).split(':').pop()
 }

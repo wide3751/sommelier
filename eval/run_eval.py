@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
-"""sommelier 離線評測：直接打 Jev，量三題的判斷品質與延遲（ticket 03）。
+"""sommelier 離線評測：直接打 Jev，量判斷品質與延遲（ticket 03、#27）。
 
 用法：
-  TYPESAFE_API_KEY=... python3 eval/run_eval.py [--tag 名稱]
+  TYPESAFE_API_KEY=... python3 eval/run_eval.py [--tag 名稱] [--no-skills]
 
-題目讀自 hooks/questions.ts（mod 與評測共用同一份定義）。
+題目讀自 hooks/questions.ts（mod 與評測共用同一份定義）。預設與 mod 一樣，
+每個請求都帶 skill 的兩題，候選 skill 用 eval/skill_candidates.json；
+eval/skill_dataset.jsonl 另外量 skill 提示的準確度。--no-skills 只送三題。
 
 輸出：
   eval/results/<時間>-<tag>.json   每題原始回應（題庫是合成的，可以進版控）
@@ -33,11 +35,23 @@ PROFILES = {
 MODELS = ["haiku", "sonnet", "opus"]
 
 
-def load_questions(path):
+# 與 hooks/decide.ts 的 SKILL_THRESHOLDS 一致
+SKILL_NEEDS = 0.3
+SKILL_TOP = 0.5
+
+
+def load_questions(path, marker="JEV QUESTIONS"):
     """讀 hooks/questions.ts 中 BEGIN／END 標記之間的 JSON 字面值。"""
     text = path.read_text()
-    block = text.split("// BEGIN JEV QUESTIONS", 1)[1].split("// END JEV QUESTIONS", 1)[0]
+    block = text.split(f"// BEGIN {marker}", 1)[1].split(f"// END {marker}", 1)[0]
     return json.loads(block.split("=", 1)[1])
+
+
+def skill_hint(answers):
+    """依 mod 的規則：needs_skill 與第一名都過門檻才提示第一名。"""
+    probs = answers["skill"]["probabilities"]
+    top = max(probs, key=probs.get)
+    return top if answers["needs_skill"]["noul"] >= SKILL_NEEDS and probs[top] >= SKILL_TOP else None
 
 
 def ask(key, model, questions, item):
@@ -84,17 +98,28 @@ def main():
     ap.add_argument("--dataset", default=str(HERE / "dataset.jsonl"))
     ap.add_argument("--tag", default="baseline")
     ap.add_argument("--workers", type=int, default=4)
+    ap.add_argument("--skill-dataset", default=str(HERE / "skill_dataset.jsonl"))
+    ap.add_argument("--skill-candidates", default=str(HERE / "skill_candidates.json"))
+    ap.add_argument("--no-skills", action="store_true")
     args = ap.parse_args()
 
     key = os.environ.get("TYPESAFE_API_KEY")
     if not key:
         raise SystemExit("TYPESAFE_API_KEY is not set")
     qdef = load_questions(Path(args.questions))
+    questions = dict(qdef["questions"])
+    if not args.no_skills:
+        sq = load_questions(Path(args.questions), "SKILL QUESTIONS")
+        candidates = json.loads(Path(args.skill_candidates).read_text())
+        questions["needs_skill"] = sq["needs_skill"]
+        questions["skill"] = {**sq["skill"], "criteria": candidates}
     items = [json.loads(line) for line in Path(args.dataset).read_text().splitlines() if line.strip()]
+    skill_items = [] if args.no_skills else [
+        json.loads(line) for line in Path(args.skill_dataset).read_text().splitlines() if line.strip()]
 
     def run(item):
         try:
-            resp, ms = ask(key, qdef["model"], qdef["questions"], item)
+            resp, ms = ask(key, qdef["model"], questions, item)
             return {**item, "answers": resp["answers"], "served_model": resp.get("model"),
                     "input_tokens": (resp.get("usage") or {}).get("input_tokens"), "ms": ms}
         except Exception as err:  # 記錄失敗，不中斷整批
@@ -102,11 +127,12 @@ def main():
 
     with ThreadPoolExecutor(args.workers) as pool:
         results = list(pool.map(run, items))
+        skill_results = list(pool.map(run, skill_items))
 
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     (HERE / "results").mkdir(exist_ok=True)
     (HERE / "reports").mkdir(exist_ok=True)
-    (HERE / "results" / f"{stamp}-{args.tag}.json").write_text(json.dumps(results, ensure_ascii=False, indent=1))
+    (HERE / "results" / f"{stamp}-{args.tag}.json").write_text(json.dumps(results + skill_results, ensure_ascii=False, indent=1))
 
     ok = [r for r in results if "answers" in r]
     failed = [r for r in results if "error" in r]
@@ -180,6 +206,30 @@ def main():
                  f"{' '.join(f'{probs[str(i)]:.2f}' for i in range(4))} | {a['new_task']['noul']:.2f} | {a['high_risk']['noul']:.2f} |")
     for r in failed:
         L.append(f"| {r['id']} | {r['current_request'][:40]} | 失敗：{r['error'][:60]} | | | |")
+
+    # skill 提示（#27）
+    if not args.no_skills:
+        L.append("\n## skill 提示\n")
+        L.append(f"門檻：needs_skill ≥ {SKILL_NEEDS}，第一名 ≥ {SKILL_TOP}；候選 {len(candidates)} 個。\n")
+        sk_ok = [r for r in skill_results if "answers" in r]
+        right = [r for r in sk_ok if skill_hint(r["answers"]) == r["expect"]["skill"]]
+        wrong = [r for r in sk_ok if skill_hint(r["answers"]) and skill_hint(r["answers"]) != r["expect"]["skill"]]
+        missed = [r for r in sk_ok if r["expect"]["skill"] and not skill_hint(r["answers"])]
+        # 一般題庫沒有標 skill，列出來供人工檢查（例如查 bug 的題目提示 diagnosing-bugs 是合理的）
+        stray = [r for r in ok if skill_hint(r["answers"])]
+        L.append(f"- skill 題庫完全正確 {pct(len(right), len(sk_ok))}；提示錯 skill {len(wrong)}，該提示沒提示 {len(missed)}")
+        L.append(f"- 一般題庫出現提示 {pct(len(stray), len(ok))}（未標註，供人工檢查）：" + (", ".join(f"{r['id']}→{skill_hint(r['answers'])}" for r in stray) or "無") + "\n")
+        L.append("| id | 請求 | 預期 | 提示 | needs_skill | 第一名 |")
+        L.append("|---|---|---|---|---|---|")
+        for r in sk_ok:
+            a = r["answers"]
+            probs = a["skill"]["probabilities"]
+            top = max(probs, key=probs.get)
+            L.append(f"| {r['id']} | {r['current_request'][:40]} | {r['expect']['skill'] or '—'} | {skill_hint(a) or '—'} | "
+                     f"{a['needs_skill']['noul']:.2f} | {top} {probs[top]:.2f} |")
+        for r in skill_results:
+            if "error" in r:
+                L.append(f"| {r['id']} | {r['current_request'][:40]} | 失敗：{r['error'][:60]} | | | |")
 
     out = HERE / "reports" / f"{stamp}-{args.tag}.md"
     out.write_text("\n".join(L) + "\n")

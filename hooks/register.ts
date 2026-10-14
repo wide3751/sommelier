@@ -9,14 +9,15 @@
 // user did not start and slash commands keep the current rung. Ticket 07: asking
 // for deep thought (ultrathink, 仔細想, 深入想) goes to opus · high without
 // asking Jev. Ticket 08: a `somm:<model>` prefix sets the rung by hand until
-// the next new topic. The full UI arrives in later tickets.
+// the next new topic. #27: a skill hint (skill 提示) beside the prompt when
+// Jev finds a skill that fits; the prompt then waits for Jev at submit.
 //
 // Every mods API call stays in this file (validation forbids passing `$` to an
 // imported function); the routing logic itself lives in decide.ts / jevState.ts /
 // redact.ts.
 
-import { JEV } from './questions.ts'
-import { DEFAULT_SETTINGS, DEFAULT_TURN, USER_ORIGINS, applySetting, asksDeepThought, cacheTtl, coldTokens, describeSettings, isShortReply, isSlashCommand, isSupportedModel, ledgerEntry, markCold, modelId, modelLabel, parseOverride, qualityGuard, rewriteCost, route, routeDeepThought, routingConfig, shortModel } from './decide.ts'
+import { JEV, SKILL_QUESTIONS } from './questions.ts'
+import { DEFAULT_SETTINGS, DEFAULT_TURN, USER_ORIGINS, applySetting, asksDeepThought, cacheTtl, coldTokens, describeSettings, isShortReply, isSlashCommand, isSupportedModel, ledgerEntry, markCold, modelId, modelLabel, parseOverride, pickSkill, qualityGuard, rewriteCost, route, routeDeepThought, routingConfig, shortModel, skillCandidates, skillHintText, skillLabel, skillQuestions } from './decide.ts'
 import { buildJevState } from './jevState.ts'
 import { redact } from './redact.ts'
 
@@ -25,12 +26,19 @@ const FALLBACK_COMMAND = 'sommelier'
 const ENABLED_KEY = 'somm:enabled'
 const CONFIG_KEY = 'somm:config'
 const CONSENT_KEY = 'somm:consent'
+// Consent to send skill names and descriptions, asked apart from CONSENT_KEY
+// so those who agreed before skill hints existed are asked about them once.
+const SKILL_CONSENT_KEY = 'somm:consent:skills'
 const PROJECT_OFF_PREFIX = 'somm:project-off:'
 const PROMPT_SUMMARY_CHARS = 40
 const CONSENT_QUESTION =
-  'sommelier 會把你之後送出的每個請求（短回覆除外）與最近 3 輪對話（不含工具輸出，常見密鑰格式已遮蔽）送到 TypeSafe，判斷要用哪個模型。要開始使用嗎？'
+  'sommelier 會把你之後送出的每個請求（短回覆除外）、最近 3 輪對話（不含工具輸出），以及你本機 skill 的名稱與描述（常見密鑰格式已遮蔽）送到 TypeSafe，判斷要用哪個模型、要不要提示 Claude 使用某個 skill。要開始使用嗎？'
 const CONSENT_AGREE = '同意，開始使用'
 const CONSENT_DECLINE = '不同意，關閉 sommelier'
+const SKILL_CONSENT_QUESTION =
+  'sommelier 新增了 skill 提示：會額外把你本機 skill 的名稱與描述（常見密鑰格式已遮蔽）送到 TypeSafe，判斷要不要提示 Claude 使用某個 skill。要開啟嗎？'
+const SKILL_CONSENT_AGREE = '同意，開啟 skill 提示'
+const SKILL_CONSENT_DECLINE = '不同意，關閉 skill 提示'
 const REC_PREFIX = 'somm:rec:'
 const MANUAL_PREFIX = 'somm:manual:'
 const REC_CAP = 500
@@ -100,6 +108,15 @@ const overrides = new Map()
 const skipped = new Map()
 // The last few state events seen, for /somm events (ticket 02).
 const events = []
+// 候選 skill for this session, built once from the context's skill listing;
+// /clear, compact and resume build it again.
+let skillCache = null
+// Skills hinted on the current topic; a new topic or /clear empties it.
+let hinted = []
+// Each turn's skill judgement ({ needs, top, topProb, hint }), keyed by turnId.
+const skillByTurn = new Map()
+// The main turn running now, for skill.prompt, which carries no turnId.
+let activeTurn = null
 
 function note(text) {
   events.push(text)
@@ -179,12 +196,68 @@ async function askConsent($) {
   }
   if (answer === CONSENT_AGREE) {
     await $.store.set(CONSENT_KEY, true)
+    // The question named skill descriptions too.
+    await $.store.set(SKILL_CONSENT_KEY, true)
     return 'agreed'
   }
   if (answer !== CONSENT_DECLINE) return 'unanswered'
   await $.store.set(ENABLED_KEY, false)
   $.ui.toast('sommelier 已關閉，之後可用 /somm on 重新開啟')
   return 'declined'
+}
+
+// Asks once before skill descriptions first leave the machine, of those who
+// agreed before skill hints existed. Declining turns skill hints off only.
+async function askSkillConsent($) {
+  if ((await $.store.get(SKILL_CONSENT_KEY)) === true) return 'agreed'
+  let answer
+  try {
+    answer = await $.ui.ask(SKILL_CONSENT_QUESTION, { header: 'sommelier', options: [SKILL_CONSENT_AGREE, SKILL_CONSENT_DECLINE] })
+  } catch {
+    return 'unanswered'
+  }
+  if (answer === SKILL_CONSENT_AGREE) {
+    await $.store.set(SKILL_CONSENT_KEY, true)
+    return 'agreed'
+  }
+  if (answer !== SKILL_CONSENT_DECLINE) return 'unanswered'
+  const r = applySetting(settings, 'skills', 'off')
+  await $.store.set(CONFIG_KEY, r.settings)
+  await loadSettings($)
+  $.ui.toast('skill 提示已關閉，之後可用 /somm config skills on 重新開啟')
+  return 'declined'
+}
+
+// 候選 skill: the listing the model reads, described by the command list.
+// Either call failing leaves none, and so no skill questions.
+async function loadSkillCandidates($) {
+  if (skillCache) return skillCache
+  let listed = []
+  let commands = []
+  try {
+    const usage = await $.session.usage({ breakdown: 'summary' })
+    const skills = usage.context.breakdown && usage.context.breakdown.skills
+    listed = skills ? skills.skillFrontmatter.map((x) => x.name) : []
+    commands = await $.command.list()
+  } catch {
+    return { listed: [], commands: [] }
+  }
+  // Built before the narrowing, which /somm config may change at any time.
+  skillCache = { listed, commands: commands.map((c) => ({ name: c.name, description: redact(c.description ?? '') })) }
+  return skillCache
+}
+
+// The skill questions for this sentence, or null: off, not agreed to, or too
+// few candidates.
+async function skillQuestionsFor($) {
+  if (settings.skills !== 'on') return null
+  const { listed, commands } = await loadSkillCandidates($)
+  const { candidates, dropped } = skillCandidates(listed, commands, settings.skillsAllow, settings.skillsExclude)
+  if (dropped) note('skills: ' + dropped + ' candidates past the choice limit left out')
+  const questions = skillQuestions(SKILL_QUESTIONS, candidates)
+  // Nothing to send, nothing to ask about.
+  if (!questions || (await askSkillConsent($)) !== 'agreed') return null
+  return questions
 }
 
 // The user's own switch (/model, the picker, /config, the SDK). Default
@@ -208,13 +281,19 @@ async function apiKey($) {
   return (await $.env.get('TYPESAFE_API_KEY')) || ''
 }
 
-async function callJev($, key, state) {
+async function callJev($, key, state, extra = null) {
   try {
     const res = await $.http.fetch(JEV_URL, {
       method: 'POST',
       headers: { authorization: 'Bearer ' + key, 'content-type': 'application/json' },
-      body: JSON.stringify({ model: JEV.model, state, questions: JEV.questions }),
+      body: JSON.stringify({ model: JEV.model, state, questions: extra ? { ...JEV.questions, ...extra } : JEV.questions }),
     })
+    // A request the skill questions made invalid is asked again without them,
+    // so a bad skill listing never costs the routing.
+    if (extra && res.status >= 400 && res.status < 500 && res.status !== 401 && res.status !== 429) {
+      const plain = await callJev($, key, state)
+      return { ...plain, skillError: 'http_' + res.status }
+    }
     if (!res.ok) return { error: 'http_' + res.status }
     const body = JSON.parse(res.text)
     if (!body.answers || !body.answers.depth || !body.answers.depth.probabilities) return { error: 'bad_response' }
@@ -224,12 +303,12 @@ async function callJev($, key, state) {
   }
 }
 
-async function judge($, text, messages) {
+async function judge($, text, messages, extra = null) {
   const t0 = await $.clock.now()
   const key = await apiKey($)
   if (!key) return { error: 'no_key', ms: 0 }
   const state = buildJevState(messages, text)
-  const result = await callJev($, key, state)
+  const result = await callJev($, key, state, extra)
   return { ...result, ms: (await $.clock.now()) - t0 }
 }
 
@@ -244,6 +323,45 @@ async function waitCapped($, promise) {
   const result = await Promise.race([promise, cap])
   ac.abort()
   return result
+}
+
+// Whether a prompt is judged: { skip } keeps the current rung without asking
+// Jev, { block } sends nothing for that reason, { judge: true } asks Jev, and
+// {} leaves it to decideTurn (off, short reply, a guard).
+async function screen($, text, origin, overridden, sessionModel) {
+  if (overridden) return { skip: 'override' }
+  if (origin && !USER_ORIGINS.includes(origin)) return { skip: 'continuation' }
+  if (isSlashCommand(text)) return { skip: 'slash_command' }
+  if (asksDeepThought(text)) return { skip: 'ultrathink' }
+  // A full id outside the 5.5 family is not routed, so nothing is sent; an
+  // alias waits for turn.step's full id.
+  const unsupported = sessionModel && sessionModel.startsWith('claude-') && !isSupportedModel(sessionModel)
+  if (text === '' || isShortReply(text) || manual || fallback || unsupported || !(await isEnabled($)) || (await projectOff($))) return {}
+  // Without a key nothing would be sent, so there is nothing to consent to.
+  const consent = (await apiKey($)) ? await askConsent($) : 'agreed'
+  if (consent !== 'agreed') return { block: 'consent_' + consent }
+  return { judge: true }
+}
+
+// Asks Jev about a prompt as it is submitted. With skill hints on, the prompt
+// waits for the answer so a hint can go with it; otherwise turn.start's
+// caller waits as before. Returns the judgement promise and the hint, if any.
+async function judgeAtSubmit($, text) {
+  await loadSettings($)
+  const extra = await skillQuestionsFor($)
+  const p = judge($, text, await $.session.messages(), extra)
+  if (!extra) return { judgement: p, skill: null }
+  const j = await waitCapped($, p)
+  if (j.error || j.skillError || !j.answers.needs_skill) {
+    if (j.skillError) note('skills: Jev refused the skill questions (' + j.skillError + ')')
+    return { judgement: Promise.resolve(j), skill: null }
+  }
+  // A new topic starts the hinted list afresh, as it does the rung.
+  const newTask = j.answers.new_task ? j.answers.new_task.noul : 0
+  if (judgedTurns === 0 || newTask >= cfg.thresholds.tNew) hinted = []
+  const skill = pickSkill(j.answers, hinted)
+  if (skill && skill.hint) hinted.push(skill.hint)
+  return { judgement: Promise.resolve(j), skill }
 }
 
 // What this turn keeps when it is not (or cannot be) judged: the current rung,
@@ -367,8 +485,13 @@ function statusText(answered, effort) {
   return '🍷 ' + answered + (effort ? '·' + effort : '')
 }
 
-function spinnerText(decision) {
+function spinnerText(decision, skill = null) {
   if (decision.reason === 'off') return ''
+  const hint = skill && skill.hint ? ' · 💡' + skillLabel(skill.hint) : ''
+  return rungText(decision) + hint
+}
+
+function rungText(decision) {
   if (!decision.rung) return 'session · ' + (decision.reason.startsWith('jev_failed') ? 'Jev 失敗' : REASON_LABEL[decision.reason] ?? decision.reason)
   const r = decision.rung
   const label = decision.reason.startsWith('jev_failed') ? 'Jev 失敗，沿用' : REASON_LABEL[decision.reason] ?? decision.reason
@@ -398,7 +521,11 @@ function formatRecord(r) {
   const cache = ' cache read ' + r.cacheRead + ' write ' + r.cacheWrite
   const answered = r.answeredModel ? ' · 回答 ' + r.answeredModel : ''
   const session = r.session ? ' [' + String(r.session).slice(0, 6) + ']' : ''
-  return rung + answered + ' · ' + r.reason + probs + (r.jevMs != null ? ' jev ' + Math.round(r.jevMs) + 'ms' : '') + cache + session
+  const skill = r.skillTop
+    ? ' · ' + (r.skillHint ? '💡' + r.skillHint + (r.skillAdopted ? '（採用）' : '（未採用）') : 'skill ' + r.skillTop) +
+      ' P=' + r.needsSkill.toFixed(2) + '/' + r.skillTopProb.toFixed(2)
+    : ''
+  return rung + answered + ' · ' + r.reason + probs + (r.jevMs != null ? ' jev ' + Math.round(r.jevMs) + 'ms' : '') + skill + cache + session
 }
 
 async function runCommand($, e) {
@@ -494,12 +621,16 @@ export function register(on, options) {
     } catch {}
     note('SessionStart source=' + e.source + ' model=' + model)
     if (e.source === 'startup') launchModel = model
-    if (e.source !== 'startup') ledger = markCold(ledger)
+    if (e.source !== 'startup') {
+      ledger = markCold(ledger)
+      skillCache = null
+    }
     if (e.source === 'resume') manual = (await $.store.get(MANUAL_PREFIX + (await $.session.id()))) ?? manual
     if (e.source === 'clear') {
       currentRung = null
       locked = null
       judgedTurns = 0
+      hinted = []
       // /clear starts a new session id; the pick carries over to it. A session
       // model that is not the one it started with was picked by hand too.
       if (!manual && launchModel && model && model !== launchModel) manual = model
@@ -536,11 +667,23 @@ export function register(on, options) {
     }
     const text = asked ? asked.text : e.text
     // A prompt typed into a running turn joins it, so no turn.start follows.
-    if (!e.turnId) {
-      origins.push({ text, kind, override: asked ? asked.rung : null })
-      if (origins.length > EVENT_CAP) origins.shift()
+    if (e.turnId) return next(asked ? { ...e, text } : e)
+    let sessionModel = null
+    try {
+      sessionModel = await $.session.model()
+    } catch {}
+    const verdict = await screen($, text, kind, !!asked, sessionModel)
+    let skill = null
+    if (verdict.judge) {
+      const r = await judgeAtSubmit($, text)
+      verdict.judgement = r.judgement
+      skill = r.skill
     }
-    return next(asked ? { ...e, text } : e)
+    origins.push({ text, kind, override: asked ? asked.rung : null, verdict, skill })
+    if (origins.length > EVENT_CAP) origins.shift()
+    const out = asked ? { ...e, text } : e
+    if (!skill || !skill.hint) return next(out)
+    return next({ ...out, context: [...(e.context ?? []), skillHintText(skill.hint)] })
   })
 
   on('command.run', { command: COMMAND }, async ($, e) => runCommand($, e))
@@ -551,27 +694,18 @@ export function register(on, options) {
     const seenAt = takeOrigin(e.text)
     const origin = seenAt ? seenAt.kind : null
     if (seenAt && seenAt.override) overrides.set(e.turnId, seenAt.override)
+    if (seenAt && seenAt.skill) skillByTurn.set(e.turnId, seenAt.skill)
     let sessionModel = null
     try {
       sessionModel = await $.session.model()
     } catch {}
     note('turn.start ' + e.turnId + ' origin=' + origin + ' session.model=' + sessionModel + (isSlashCommand(e.text) ? ' slash' : ''))
-    if (overrides.has(e.turnId)) skipped.set(e.turnId, 'override')
-    else if (origin && !USER_ORIGINS.includes(origin)) skipped.set(e.turnId, 'continuation')
-    else if (isSlashCommand(e.text)) skipped.set(e.turnId, 'slash_command')
-    else if (asksDeepThought(e.text)) skipped.set(e.turnId, 'ultrathink')
-    // A full id outside the 5.5 family is not routed, so nothing is sent; an
-    // alias waits for turn.step's full id.
-    const unsupported = sessionModel && sessionModel.startsWith('claude-') && !isSupportedModel(sessionModel)
-    if (
-      e.text !== '' && !isShortReply(e.text) && !skipped.has(e.turnId) && !manual && !fallback && !unsupported &&
-      (await isEnabled($)) && !(await projectOff($))
-    ) {
-      // Without a key nothing would be sent, so there is nothing to consent to.
-      const consent = (await apiKey($)) ? await askConsent($) : 'agreed'
-      if (consent === 'agreed') pending.set(e.turnId, judge($, e.text, await $.session.messages()))
-      else blocked.set(e.turnId, 'consent_' + consent)
-    }
+    // prompt.submit screened it already; a turn it never saw is screened now.
+    const verdict = seenAt && seenAt.verdict ? seenAt.verdict : await screen($, e.text, origin, overrides.has(e.turnId), sessionModel)
+    if (verdict.skip) skipped.set(e.turnId, verdict.skip)
+    if (verdict.block) blocked.set(e.turnId, verdict.block)
+    if (verdict.judgement) pending.set(e.turnId, verdict.judgement)
+    else if (verdict.judge) pending.set(e.turnId, judge($, e.text, await $.session.messages()))
     return next(e)
   })
 
@@ -579,10 +713,11 @@ export function register(on, options) {
     if (e.agentId) return yield* next(e)
     let t = turns.get(e.turnId)
     if (!t) {
-      t = { decision: await decideTurn($, e), steps: 0, input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }
+      t = { decision: await decideTurn($, e), steps: 0, input: 0, output: 0, cacheRead: 0, cacheWrite: 0, skill: skillByTurn.get(e.turnId) ?? null, skillsUsed: [] }
       turns.set(e.turnId, t)
+      activeTurn = e.turnId
       note('turn.step ' + e.turnId + ' model=' + e.model + ' → ' + (t.decision.rung ? t.decision.rung.model : 'session') + ' (' + t.decision.reason + ')')
-      lastShown = spinnerText(t.decision)
+      lastShown = spinnerText(t.decision, t.skill)
       $.ui.invalidate('ui.render')
     }
     // A fallback mid-turn: the engine's choice stands for the rest of it.
@@ -610,6 +745,8 @@ export function register(on, options) {
     blocked.delete(e.turnId)
     skipped.delete(e.turnId)
     overrides.delete(e.turnId)
+    skillByTurn.delete(e.turnId)
+    if (activeTurn === e.turnId) activeTurn = null
     const prompt = prompts.get(e.turnId)
     prompts.delete(e.turnId)
     const t = turns.get(e.turnId)
@@ -620,11 +757,22 @@ export function register(on, options) {
       seen.fresh += t.input + t.cacheWrite
     }
     if (!e.agentId && t && t.decision.reason !== 'off') {
-      const { decision, ...usage } = t
+      const { decision, skill, skillsUsed, ...usage } = t
       // A stopped project keeps no trace of its prompts.
       const summary = prompt && decision.reason !== 'project_off' ? redact(prompt).slice(0, PROMPT_SUMMARY_CHARS) : undefined
-      await writeRecord($, { turnId: e.turnId, ...decision, ...usage, prompt: summary })
+      const skillRec = skill
+        ? { skillHint: skill.hint, needsSkill: skill.needs, skillTop: skill.top, skillTopProb: skill.topProb, skillAdopted: skill.hint ? skillsUsed.includes(skill.hint) : undefined }
+        : {}
+      await writeRecord($, { turnId: e.turnId, ...decision, ...usage, ...skillRec, skillsUsed: skillsUsed.length ? skillsUsed : undefined, prompt: summary })
     }
+    return next(e)
+  })
+
+  // Fires for /name, the Skill tool and a subagent's preload alike; one while
+  // a main turn runs is that turn's, for 採用 (#27).
+  on('skill.prompt', async ($, e, next) => {
+    const t = activeTurn ? turns.get(activeTurn) : null
+    if (t && !t.skillsUsed.includes(e.skill)) t.skillsUsed.push(e.skill)
     return next(e)
   })
 
