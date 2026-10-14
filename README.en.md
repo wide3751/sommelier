@@ -20,7 +20,7 @@ The way a sommelier picks a wine for each dish, sommelier asks [TypeSafe Jev](ht
 ## Quick start
 
 ```bash
-claude plugin marketplace add ~/Projects/sommelier
+claude plugin marketplace add wide3751/sommelier
 claude plugin install sommelier@sommelier
 printf '{"typesafe_api_key":"%s"}' "$TYPESAFE_API_KEY" | claude plugin configure sommelier@sommelier --values-stdin
 ```
@@ -40,13 +40,22 @@ Run `/somm off` to stop. See [Install](#install) and [Usage](#usage) for details
 
 ## Install
 
-1. Add the local marketplace and install:
+1. Add the marketplace and install. There are two ways; **GitHub is recommended**:
+
+   **Option A: from GitHub (recommended)** — no need to download the project:
 
 ```bash
-claude plugin marketplace add ~/Projects/sommelier
+claude plugin marketplace add wide3751/sommelier
+claude plugin install sommelier@sommelier
 ```
 
+   To update to a new version later, run `claude plugin marketplace update sommelier` and reinstall.
+
+   **Option B: from a local folder** — for when you have cloned the project and want to install your own changes:
+
 ```bash
+git clone https://github.com/wide3751/sommelier.git ~/Projects/sommelier
+claude plugin marketplace add ~/Projects/sommelier
 claude plugin install sommelier@sommelier
 ```
 

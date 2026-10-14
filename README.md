@@ -20,7 +20,7 @@
 ## 快速開始
 
 ```bash
-claude plugin marketplace add ~/Projects/sommelier
+claude plugin marketplace add wide3751/sommelier
 claude plugin install sommelier@sommelier
 printf '{"typesafe_api_key":"%s"}' "$TYPESAFE_API_KEY" | claude plugin configure sommelier@sommelier --values-stdin
 ```
@@ -40,13 +40,22 @@ printf '{"typesafe_api_key":"%s"}' "$TYPESAFE_API_KEY" | claude plugin configure
 
 ## 安裝
 
-1. 加入本機 marketplace 並安裝：
+1. 加入 marketplace 並安裝。有兩種方式，**建議用 GitHub**：
+
+   **方式 A：從 GitHub 安裝（建議）**，不用下載專案：
 
 ```bash
-claude plugin marketplace add ~/Projects/sommelier
+claude plugin marketplace add wide3751/sommelier
+claude plugin install sommelier@sommelier
 ```
 
+   之後要更新到新版本，執行 `claude plugin marketplace update sommelier` 再重新安裝。
+
+   **方式 B：從本機資料夾安裝**，適合已經 clone 專案、想裝自己改過的版本：
+
 ```bash
+git clone https://github.com/wide3751/sommelier.git ~/Projects/sommelier
+claude plugin marketplace add ~/Projects/sommelier
 claude plugin install sommelier@sommelier
 ```
 
