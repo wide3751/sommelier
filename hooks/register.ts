@@ -46,6 +46,14 @@ const REASON_LABEL = {
 const EVENT_CAP = 20
 
 let configKey = ''
+const NOTIFY_GAP_MS = 10000
+// Jev failures in a row that call for a toast; no key is not one (/somm status says so).
+const JEV_FAILURE_TOAST = 3
+let lastToastAt = -Infinity
+// A toast held back by the gap, shown once it ends.
+let heldToast = null
+const notifiedTurns = new Set()
+let jevFailures = 0
 // 日常設定 as last read from the store; every judged turn reads them again,
 // so a change from /somm config (here or in another session) applies at once.
 let settings = DEFAULT_SETTINGS
@@ -119,9 +127,33 @@ async function loadSettings($) {
   return settings
 }
 
-// Toasts the notify setting governs: off silences them.
-function notify($, text) {
-  if (settings.notify !== 'off') $.ui.toast(text)
+// Toasts the notify setting governs (ticket 12): off silences them; otherwise
+// one per turn, and at most one every NOTIFY_GAP_MS. One that comes sooner
+// waits for the gap to end and is shown then, unless a newer one replaces it.
+async function notify($, turnId, text) {
+  if (settings.notify === 'off' || notifiedTurns.has(turnId)) return
+  notifiedTurns.add(turnId)
+  if (notifiedTurns.size > EVENT_CAP) notifiedTurns.delete(notifiedTurns.values().next().value)
+  const now = await $.clock.now()
+  if (now - lastToastAt >= NOTIFY_GAP_MS) {
+    lastToastAt = now
+    $.ui.toast(text)
+    return
+  }
+  const waiting = heldToast !== null
+  heldToast = text
+  if (waiting) return
+  try {
+    await $.clock.sleep(lastToastAt + NOTIFY_GAP_MS - now)
+  } catch {
+    // The session ended first: nothing is left to show it on.
+    heldToast = null
+    return
+  }
+  lastToastAt = await $.clock.now()
+  const latest = heldToast
+  heldToast = null
+  if (settings.notify !== 'off') $.ui.toast(latest)
 }
 
 async function isEnabled($) {
@@ -261,7 +293,14 @@ async function decideTurn($, e) {
   const j = await waitCapped($, p)
   // A failed judgement keeps the current rung: falling back to the session
   // model would itself be a switch, and rewrite the cache for nothing.
-  if (j.error) return keep('jev_failed:' + j.error, contextTokens, { jevMs: j.ms ?? null })
+  if (j.error) {
+    if (j.error !== 'no_key') jevFailures += 1
+    if (jevFailures === JEV_FAILURE_TOAST) {
+      void notify($, e.turnId, 'sommelier：Jev 連續 ' + JEV_FAILURE_TOAST + ' 次判斷失敗（' + j.error + '），這幾句沿用目前的模型。/somm log 可看原因')
+    }
+    return keep('jev_failed:' + j.error, contextTokens, { jevMs: j.ms ?? null })
+  }
+  jevFailures = 0
   const jev = {
     probs: j.answers.depth.probabilities, riskProb: j.answers.high_risk ? j.answers.high_risk.noul : null,
     jevMs: j.ms, servedModel: j.servedModel,
@@ -282,8 +321,8 @@ async function decideTurn($, e) {
   judgedTurns += 1
   currentRung = r.current
   if (r.reason === 'cost_blocked') {
-    notify(
-      $,
+    void notify(
+      $, e.turnId,
       'sommelier：換到 ' + r.cost.target + ' 要重寫 ' + Math.round(r.cost.cold / 1000) + 'k tokens 的 cache（約 $' +
         r.cost.extra.toFixed(2) + '），預估省回 $' + r.cost.savings.toFixed(2) + '，這一句沿用 ' + (currentRung ? currentRung.model : shortModel(e.model)),
     )
@@ -306,8 +345,8 @@ async function override($, e, rung, contextTokens) {
   if (rung.model !== from.model) {
     cold = coldTokens(ledger[rung.model], contextTokens, await $.clock.now(), e.messageCount, lastTtl)
     if (cold >= OVERRIDE_TOAST_TOKENS) {
-      notify(
-        $,
+      void notify(
+        $, e.turnId,
         'sommelier：覆寫為 ' + rung.model + '，要重寫 ' + Math.round(cold / 1000) + 'k tokens 的 cache（約 $' +
           rewriteCost(rung.model, cold, lastTtl).toFixed(2) + '）',
       )

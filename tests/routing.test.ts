@@ -319,6 +319,9 @@ test('a downgrade that cannot pay back its cache rewrite is blocked for that sen
   await turn($, 't2', '另一件事：幫 formatDate 補測試')
   expect(h.fetches.length).toBe(2)
   expect(h.sent.map((s) => s.model)).toEqual([OPUS, OPUS])
+  // The second notice waits out the 10-second gap.
+  expect(h.toasts.length).toBe(1)
+  await h.clock.advance(10000)
   expect(h.toasts.length).toBe(2)
   expect(h.statuses.at(-1)).toBe('🍷 opus 5.5·medium')
 })
@@ -1040,4 +1043,55 @@ test('config enabled off is the same as /somm off', async ($, on) => {
   await turn($, 't1', '看一下 package.json 的 version')
   expect(h.fetches.length).toBe(0)
   expect(await config($)).toContain('enabled off')
+})
+
+// ticket 12：notify
+
+const fail = { status: 500, ok: false, headers: {}, text: '' }
+
+test('three Jev failures in a row show one notice, and a success starts the count again', async ($, on) => {
+  const h = setup(on, { enabled: true, jev: sequence(fail, fail, fail, fail, ok(L0), fail, fail, fail) })
+  for (let i = 1; i <= 4; i++) await turn($, 't' + i, '幫 parseDate 加上時區參數 ' + i)
+  expect(h.toasts).toHaveLength(1)
+  expect(h.toasts[0]).toContain('Jev 連續 3 次判斷失敗（http_500）')
+  await turn($, 't5', '看一下 package.json 的 version')
+  await h.clock.advance(10000)
+  for (let i = 6; i <= 8; i++) await turn($, 't' + i, '幫 parseDate 加上時區參數 ' + i)
+  expect(h.toasts).toHaveLength(2)
+})
+
+test('turns without an API key are not counted as Jev failures', async ($, on) => {
+  const h = setup(on, { enabled: true, key: null })
+  for (let i = 1; i <= 4; i++) await turn($, 't' + i, '幫 parseDate 加上時區參數 ' + i)
+  expect(h.toasts).toHaveLength(0)
+})
+
+test('notify off shows no Jev failure notice', async ($, on) => {
+  const h = setup(on, { enabled: true, jev: () => fail })
+  await config($, 'notify off')
+  for (let i = 1; i <= 3; i++) await turn($, 't' + i, '幫 parseDate 加上時區參數 ' + i)
+  expect(h.toasts).toHaveLength(0)
+})
+
+test('notices within 10 seconds of one another: only the newest waits and is shown', async ($, on) => {
+  const h = setup(on, { enabled: true, contextTokens: 120000, jev: clear })
+  await typed($, 't1', '幫 parseDate 加上時區參數')
+  expect(h.toasts).toHaveLength(1)
+  expect(h.toasts[0]).toContain('換到 sonnet')
+  await typed($, 't2', 'somm:haiku 看一下 package.json 的 version')
+  await typed($, 't3', 'somm:sonnet 幫 formatDate 補測試')
+  await h.clock.advance(9000)
+  expect(h.toasts).toHaveLength(1)
+  await h.clock.advance(1000)
+  expect(h.toasts).toHaveLength(2)
+  expect(h.toasts[1]).toContain('覆寫為 sonnet')
+})
+
+test('a held notice is dropped once notify is turned off', async ($, on) => {
+  const h = setup(on, { enabled: true, contextTokens: 120000, jev: clear })
+  await typed($, 't1', '幫 parseDate 加上時區參數')
+  await typed($, 't2', 'somm:haiku 看一下 package.json 的 version')
+  await config($, 'notify off')
+  await h.clock.advance(10000)
+  expect(h.toasts).toHaveLength(1)
 })

@@ -139,7 +139,7 @@ Keychain 只有 macOS 才有；Windows 上 key 由 Claude Code 的 plugin 設定
 | `profile` | balanced | `saver`（省額度：較少用 opus、較晚換話題）、`balanced`（平衡）、`quality`（品質優先：較早用 sonnet／opus、haiku 只接 15k 以內的對話）；也可以寫中文名稱 |
 | `allowed` | haiku-opus | sommelier 可以選的模型範圍，例如 `sonnet-opus` 就不會用 haiku。`somm:` 覆寫不受限制 |
 | `spinner` | on | Claude 工作時 spinner 旁是否顯示這一輪的判斷 |
-| `notify` | important | 換模型要重寫 cache 等重要提示；`off` 不跳提示 |
+| `notify` | important | 跳出重要提示：覆寫或降級要重寫 cache、Jev 連續 3 次判斷失敗。同一輪最多一則，10 秒內有好幾則時只補顯示最新的一則；`off` 不跳提示 |
 
 開啟後，prompt 下方的狀態列會顯示實際回答的模型、版本與 effort，例如 `🍷 haiku 5.5·medium`。旁邊 Claude Code 自己顯示的是 session 的模型。
 
