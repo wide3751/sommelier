@@ -774,3 +774,59 @@ test('/somm events lists the state events seen', async ($, on) => {
 async function submitted($, text: string, kind: string) {
   await $.prompt.submit({ text, wait: false, origin: { kind } as any })
 }
+
+// ticket 07：高風險、ultrathink 與 effort
+
+test('high risk lifts haiku to base for good, with high effort for that turn only', async ($, on) => {
+  const h = setup(on, { enabled: true, jev: sequence(ok(L0), ok(L0, 0.1, 0.9), ok(L0, 0.1)) })
+  await turn($, 't1', '看一下 package.json 的 version')
+  await turn($, 't2', '把 users 表的 email 欄位刪掉')
+  await turn($, 't3', '再看一下 README 的標題')
+  expect(rungs(h)).toEqual(['haiku/medium', 'opus/high', 'opus/medium'])
+  expect(records(h.saved).at(-1).reason).toBe('hold')
+})
+
+test('going from opus · medium to opus · high changes effort only', async ($, on) => {
+  const h = setup(on, { enabled: true, jev: sequence(ok([0.05, 0.2, 0.7, 0.05]), ok(L3, 0.1)) })
+  await turn($, 't1', '登入偶爾 401，找出原因')
+  await turn($, 't2', '只在正式機偶發的 race condition 也一起查')
+  expect(h.sent.map((s) => s.model)).toEqual([OPUS, OPUS])
+  expect(h.sent.map((s) => s.effort)).toEqual(['medium', 'high'])
+})
+
+for (const text of ['ultrathink: 這個 bug 怎麼修', 'Ultrathink about the cache design', '請仔細想一下這個重構', '深入想']) {
+  test('asking for deep thought (' + text + ') goes to opus · high without calling Jev', async ($, on) => {
+    const h = setup(on, { enabled: true })
+    await turn($, 't1', '看一下 package.json 的 version')
+    await turn($, 't2', text)
+    expect(h.fetches.length).toBe(1)
+    expect(rungs(h)).toEqual(['haiku/medium', 'opus/high'])
+    expect(records(h.saved).at(-1).reason).toBe('ultrathink')
+  })
+}
+
+test('opus · high asked for by name sticks like any upgrade', async ($, on) => {
+  const h = setup(on, { enabled: true, jev: sequence(ok(L0, 0.1)) })
+  await turn($, 't1', 'ultrathink 規劃整個權限系統')
+  await turn($, 't2', '接著把第一步寫成程式')
+  expect(rungs(h)).toEqual(['opus/high', 'opus/high'])
+  expect(h.fetches.length).toBe(1)
+  expect(records(h.saved).at(-1).newTopic).toBe(false)
+})
+
+for (const text of ['把 `ultrathink` 這個字從 README 拿掉', '這段為什麼錯\n```\nconst mode = "ultrathink"\n```', 'ultrathinking 是什麼意思，跟 thinking 差在哪', 'grep ultrathink_mode 在哪裡用到']) {
+  test('the word inside code or a longer word is not a request (' + text.slice(0, 12) + ')', async ($, on) => {
+    const h = setup(on, { enabled: true })
+    await turn($, 't1', text)
+    expect(h.fetches.length).toBe(1)
+    expect(records(h.saved).at(-1).reason).not.toBe('ultrathink')
+  })
+}
+
+test('a manual model still wins over ultrathink', async ($, on) => {
+  const h = setup(on, { enabled: true })
+  await $.classic.PreModelSwitch(userSwitch(SONNET, 'sonnet'))
+  await turn($, 't1', 'ultrathink 這個 bug 怎麼修', SONNET)
+  expect(h.sent[0].model).toBe(SONNET)
+  expect(records(h.saved)[0].reason).toBe('manual')
+})
