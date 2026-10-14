@@ -47,8 +47,9 @@ const EVENT_CAP = 20
 
 let configKey = ''
 const NOTIFY_GAP_MS = 10000
-// Jev failures in a row that call for a toast; no key is not one (/somm status says so).
+// Jev failures in a row that call for a toast; no key is not one: it gets its own toast, once.
 const JEV_FAILURE_TOAST = 3
+let noKeyNotified = false
 let lastToastAt = -Infinity
 // A toast held back by the gap, shown once it ends.
 let heldToast = null
@@ -294,7 +295,12 @@ async function decideTurn($, e) {
   // A failed judgement keeps the current rung: falling back to the session
   // model would itself be a switch, and rewrite the cache for nothing.
   if (j.error) {
-    if (j.error !== 'no_key') jevFailures += 1
+    if (j.error === 'no_key') {
+      if (!noKeyNotified) {
+        noKeyNotified = true
+        void notify($, e.turnId, 'sommelier：沒有 TypeSafe API key，Jev 無法判斷，先沿用目前的模型。請在插件設定填入 typesafe_api_key，或讓 Claude Code 讀得到 TYPESAFE_API_KEY')
+      }
+    } else jevFailures += 1
     if (jevFailures === JEV_FAILURE_TOAST) {
       void notify($, e.turnId, 'sommelier：Jev 連續 ' + JEV_FAILURE_TOAST + ' 次判斷失敗（' + j.error + '），這幾句沿用目前的模型。/somm log 可看原因')
     }
