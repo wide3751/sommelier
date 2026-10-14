@@ -133,6 +133,8 @@ When on, the status line under the prompt shows the model, its version and the e
 
 If another plugin already uses `/somm`, the command falls back to `/sommelier`.
 
+**Picking the model yourself (override)**: start a prompt with `somm:opus`, `somm:sonnet` or `somm:haiku` (any case) and that request uses that model (medium effort) without asking Jev. The prefix is removed before the model sees the prompt. The same model stays for the rest of the topic, until Jev sees a new topic, you `/clear`, or you switch with `/model`. A prefix with nothing after it sends nothing and only sets the model for what follows. When the switch rewrites the cache, a notice says how many tokens and roughly what it costs.
+
 **How each request is decided:**
 - **Upgrade**: whenever a request needs a stronger model or higher effort, it moves up
 - **High risk**: a request that deletes or overwrites data, or changes production or permissions, moves to at least base (opus by default), with high effort for that request only

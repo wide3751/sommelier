@@ -1,7 +1,7 @@
 {
   "name": "sommelier",
   "displayName": "Sommelier",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "Picks the model and effort for each Claude Code task using TypeSafe Jev judgments: upgrade any time, downgrade only when the prompt cache would be rebuilt anyway.",
   "author": { "name": "wide3751" },
   "repository": "https://github.com/wide3751/sommelier",

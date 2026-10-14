@@ -204,6 +204,22 @@ export function qualityGuard(rung, contextTokens, cfg = BALANCED) {
   return rung && rung.model === 'haiku' && (contextTokens ?? 0) > cfg.haikuMaxCtx ? { model: 'sonnet', effort: 'medium' } : null
 }
 
+// 覆寫 (docs/spec.md「分派決策」6): `somm:opus`, `somm:sonnet` or `somm:haiku`
+// at the very start of a prompt. Returns the rung it names and the prompt
+// without it, or null. effort stays medium; `:high` is not taken yet.
+export function parseOverride(text) {
+  const m = /^\s*somm:(opus|sonnet|haiku)(?![\w:])\s*/i.exec(String(text))
+  if (!m) return null
+  return { rung: { model: m[1].toLowerCase(), effort: 'medium' }, text: String(text).slice(m[0].length) }
+}
+
+// What writing `cold` tokens into a model's cache costs over reading them, in USD.
+export function rewriteCost(model, cold, ttl = '1h') {
+  const p = PRICES[model]
+  if (!p) return 0
+  return (cold * (p.input * (CACHE_WRITE_MULT[ttl] ?? CACHE_WRITE_MULT['1h']) - p.cacheRead)) / 1e6
+}
+
 // A turn that asked for deep thought goes to L3 without asking Jev. It can
 // only move up, so there is nothing to weigh: an upgrade that sticks like any
 // other, or the current rung when that is already as high.

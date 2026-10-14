@@ -8,14 +8,15 @@
 // an automatic fallback or an unsupported session model is left alone; turns the
 // user did not start and slash commands keep the current rung. Ticket 07: asking
 // for deep thought (ultrathink, 仔細想, 深入想) goes to opus · high without
-// asking Jev. Overrides and the full UI arrive in later tickets.
+// asking Jev. Ticket 08: a `somm:<model>` prefix sets the rung by hand until
+// the next new topic. The full UI arrives in later tickets.
 //
 // Every mods API call stays in this file (validation forbids passing `$` to an
 // imported function); the routing logic itself lives in decide.ts / jevState.ts /
 // redact.ts.
 
 import { JEV } from './questions.ts'
-import { DEFAULT_TURN, USER_ORIGINS, asksDeepThought, cacheTtl, isShortReply, isSlashCommand, isSupportedModel, ledgerEntry, markCold, modelId, modelLabel, qualityGuard, route, routeDeepThought, shortModel } from './decide.ts'
+import { BALANCED, DEFAULT_TURN, USER_ORIGINS, asksDeepThought, cacheTtl, coldTokens, isShortReply, isSlashCommand, isSupportedModel, ledgerEntry, markCold, modelId, modelLabel, parseOverride, qualityGuard, rewriteCost, route, routeDeepThought, shortModel } from './decide.ts'
 import { buildJevState } from './jevState.ts'
 import { redact } from './redact.ts'
 
@@ -39,7 +40,7 @@ const REASON_LABEL = {
   upgrade: '升級', downgrade: '降級', hold: '沿用', continuation: '沿用', cost_blocked: '換模型不划算，沿用',
   quality_guard: '對話太長，改用 sonnet', project_off: '專案停用', consent_declined: '未同意送出', consent_unanswered: '尚未確認送出',
   manual: '手動指定', fallback: '自動 fallback', unsupported_session_model: '不支援的模型', slash_command: '沿用',
-  ultrathink: '要求深入思考',
+  ultrathink: '要求深入思考', override: '覆寫', override_locked: '覆寫鎖定中',
 }
 const EVENT_CAP = 20
 
@@ -73,8 +74,14 @@ let manual = null
 let fallback = false
 // The session model at startup, to tell a manual pick that /clear forgot.
 let launchModel = null
-// Origins of submitted prompts not yet started, oldest first: { text, kind }.
+// 覆寫鎖定: the rung a `somm:` prefix set, held until Jev sees a new topic.
+let locked = null
+// A cache rewrite smaller than this is not worth a toast.
+const OVERRIDE_TOAST_TOKENS = 1000
+// Origins of submitted prompts not yet started, oldest first: { text, kind, override }.
 const origins = []
+// Rungs a `somm:` prefix asked for, keyed by turnId.
+const overrides = new Map()
 // Turns that keep the current rung without a judgement, keyed by turnId, with why.
 const skipped = new Map()
 // The last few state events seen, for /somm events (ticket 02).
@@ -85,12 +92,12 @@ function note(text) {
   if (events.length > EVENT_CAP) events.shift()
 }
 
-// The origin a submitted prompt carried, matched by its text; unknown (null)
-// when the turn was not seen at prompt.submit.
+// What prompt.submit saw of a prompt, matched by its text: its origin and any
+// override; null when the turn was not seen there.
 function takeOrigin(text) {
   const i = origins.findIndex((o) => o.text === text)
   if (i < 0) return null
-  return origins.splice(i, 1)[0].kind
+  return origins.splice(i, 1)[0]
 }
 
 // Guards that leave the request to the session (docs/spec.md「分派決策」2–4).
@@ -136,6 +143,7 @@ async function askConsent($) {
 // the user has chosen, so a fallback no longer holds.
 async function userSwitch($, e) {
   fallback = false
+  locked = null
   await setManual($, e.requested_model === null ? null : e.to_model)
 }
 
@@ -192,7 +200,8 @@ async function waitCapped($, promise) {
 // What this turn keeps when it is not (or cannot be) judged: the current rung,
 // moved to sonnet once haiku's conversation has grown too long.
 function keep(reason, contextTokens, extra = {}) {
-  const guard = qualityGuard(currentRung, contextTokens)
+  // An override holds even past haiku's length (docs/spec.md「分派決策」11).
+  const guard = locked ? null : qualityGuard(currentRung, contextTokens)
   if (guard) {
     currentRung = guard
     return { rung: guard, reason: 'quality_guard', ...extra }
@@ -215,11 +224,18 @@ async function decideTurn($, e) {
   // contextTokens is absent before the session's first response: nothing is
   // cached yet, so any switch is free.
   const contextTokens = (await $.session.usage()).context.tokens ?? 0
+  const asked = overrides.get(e.turnId)
+  if (asked) {
+    overrides.delete(e.turnId)
+    return override($, e, asked, contextTokens)
+  }
   if (skipped.get(e.turnId) === 'ultrathink') {
     const r = routeDeepThought({ current: currentRung, session: { model: shortModel(e.model), effort: e.effort ?? 'medium' } })
     // It stands for a judgement: the next sentence is not a session's first.
     judgedTurns += 1
     currentRung = r.current
+    // Asking by name is the user's word too, and the newer one.
+    locked = null
     return { rung: r.rung, reason: r.reason, level: r.level, contextTokens }
   }
   const p = pending.get(e.turnId)
@@ -229,6 +245,16 @@ async function decideTurn($, e) {
   // A failed judgement keeps the current rung: falling back to the session
   // model would itself be a switch, and rewrite the cache for nothing.
   if (j.error) return keep('jev_failed:' + j.error, contextTokens, { jevMs: j.ms ?? null })
+  const jev = {
+    probs: j.answers.depth.probabilities, riskProb: j.answers.high_risk ? j.answers.high_risk.noul : null,
+    jevMs: j.ms, servedModel: j.servedModel,
+  }
+  if (locked) {
+    // Held until a new topic; then it is judged like any other sentence.
+    const newTask = j.answers.new_task ? j.answers.new_task.noul : null
+    if ((newTask ?? 0) < BALANCED.tNew) return { rung: locked, reason: 'override_locked', newTopic: false, newTask, contextTokens, ...jev }
+    locked = null
+  }
   const r = route(j.answers, {
     current: currentRung,
     session: { model: shortModel(e.model), effort: e.effort ?? 'medium' },
@@ -247,10 +273,28 @@ async function decideTurn($, e) {
   return {
     rung: r.rung, reason: r.reason, level: r.level, newTopic: r.newTopic, highRisk: r.highRisk, newTask: r.newTask,
     contextTokens, coldTokens: r.cost ? r.cost.cold : undefined, switchCost: r.cost ? r.cost.extra : undefined,
-    switchSavings: r.cost ? r.cost.savings : undefined,
-    probs: j.answers.depth.probabilities, riskProb: j.answers.high_risk ? j.answers.high_risk.noul : null,
-    jevMs: j.ms, servedModel: j.servedModel,
+    switchSavings: r.cost ? r.cost.savings : undefined, ...jev,
   }
+}
+
+// A `somm:` prefix: the named rung, now and until the next new topic, cost
+// rules aside. A switch that rewrites the cache says what it costs.
+async function override($, e, rung, contextTokens) {
+  const from = currentRung ?? { model: shortModel(e.model), effort: e.effort ?? 'medium' }
+  judgedTurns += 1
+  currentRung = rung
+  locked = rung
+  let cold
+  if (rung.model !== from.model) {
+    cold = coldTokens(ledger[rung.model], contextTokens, await $.clock.now(), e.messageCount, lastTtl)
+    if (cold >= OVERRIDE_TOAST_TOKENS) {
+      $.ui.toast(
+        'sommelier：覆寫為 ' + rung.model + '，要重寫 ' + Math.round(cold / 1000) + 'k tokens 的 cache（約 $' +
+          rewriteCost(rung.model, cold, lastTtl).toFixed(2) + '）',
+      )
+    }
+  }
+  return { rung, reason: 'override', contextTokens, coldTokens: cold }
 }
 
 // The status line under the prompt: the model, with its version, and effort
@@ -321,7 +365,8 @@ async function runCommand($, e) {
     const key = (await apiKey($)) ? '已設定' : '未設定'
     const rung = currentRung ? currentRung.model + '·' + currentRung.effort : judgedTurns ? 'session 模型' : '（尚未判斷）'
     const project = (await projectOff($)) ? '｜此專案停用' : ''
-    const guard = manual ? '｜手動指定 ' + modelLabel(manual) + '（選回 Default 恢復）' : fallback ? '｜自動 fallback 中（手動 /model 後恢復）' : ''
+    const guard = manual ? '｜手動指定 ' + modelLabel(manual) + '（選回 Default 恢復）' : fallback ? '｜自動 fallback 中（手動 /model 後恢復）' :
+      locked ? '｜覆寫鎖定 ' + locked.model + '·' + locked.effort + '（到下一個新話題）' : ''
     return { text: 'sommelier ' + (on ? '開啟' : '關閉') + project + guard + '｜API key ' + key + '｜本 session 檔位 ' + rung }
   }
   if (sub === 'events') {
@@ -368,6 +413,7 @@ export function register(on, options) {
     if (e.source === 'resume') manual = (await $.store.get(MANUAL_PREFIX + (await $.session.id()))) ?? manual
     if (e.source === 'clear') {
       currentRung = null
+      locked = null
       judgedTurns = 0
       // /clear starts a new session id; the pick carries over to it. A session
       // model that is not the one it started with was picked by hand too.
@@ -392,13 +438,24 @@ export function register(on, options) {
 
   on('prompt.submit', async ($, e, next) => {
     const kind = e.origin ? e.origin.kind : 'none'
-    note('prompt.submit origin=' + kind + (e.turnId ? ' into ' + e.turnId : ''))
+    // Only the user's own prompt can carry an override; it is stripped before
+    // the model sees it.
+    const asked = USER_ORIGINS.includes(kind) || kind === 'none' ? parseOverride(e.text) : null
+    note('prompt.submit origin=' + kind + (e.turnId ? ' into ' + e.turnId : '') + (asked ? ' somm:' + asked.rung.model : ''))
+    if (asked && asked.text.trim() === '') {
+      // A bare prefix sends nothing: it sets the rung for the prompts that follow.
+      currentRung = asked.rung
+      locked = asked.rung
+      judgedTurns += 1
+      return { drop: 'sommelier：接下來用 ' + asked.rung.model + '·' + asked.rung.effort + '，到下一個新話題為止' }
+    }
+    const text = asked ? asked.text : e.text
     // A prompt typed into a running turn joins it, so no turn.start follows.
     if (!e.turnId) {
-      origins.push({ text: e.text, kind })
+      origins.push({ text, kind, override: asked ? asked.rung : null })
       if (origins.length > EVENT_CAP) origins.shift()
     }
-    return next(e)
+    return next(asked ? { ...e, text } : e)
   })
 
   on('command.run', { command: COMMAND }, async ($, e) => runCommand($, e))
@@ -406,13 +463,16 @@ export function register(on, options) {
 
   on('turn.start', async ($, e, next) => {
     prompts.set(e.turnId, e.text)
-    const origin = takeOrigin(e.text)
+    const seenAt = takeOrigin(e.text)
+    const origin = seenAt ? seenAt.kind : null
+    if (seenAt && seenAt.override) overrides.set(e.turnId, seenAt.override)
     let sessionModel = null
     try {
       sessionModel = await $.session.model()
     } catch {}
     note('turn.start ' + e.turnId + ' origin=' + origin + ' session.model=' + sessionModel + (isSlashCommand(e.text) ? ' slash' : ''))
-    if (origin && !USER_ORIGINS.includes(origin)) skipped.set(e.turnId, 'continuation')
+    if (overrides.has(e.turnId)) skipped.set(e.turnId, 'override')
+    else if (origin && !USER_ORIGINS.includes(origin)) skipped.set(e.turnId, 'continuation')
     else if (isSlashCommand(e.text)) skipped.set(e.turnId, 'slash_command')
     else if (asksDeepThought(e.text)) skipped.set(e.turnId, 'ultrathink')
     // A full id outside the 5.5 family is not routed, so nothing is sent; an
@@ -464,6 +524,7 @@ export function register(on, options) {
     pending.delete(e.turnId)
     blocked.delete(e.turnId)
     skipped.delete(e.turnId)
+    overrides.delete(e.turnId)
     const prompt = prompts.get(e.turnId)
     prompts.delete(e.turnId)
     const t = turns.get(e.turnId)
