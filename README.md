@@ -99,7 +99,7 @@ printf '{"typesafe_api_key":"%s"}' "$TYPESAFE_API_KEY" | claude plugin configure
 | `/somm status` | 顯示開關、此專案是否停用、API key 是否設定、本 session 的檔位 |
 | `/somm log [n]` | 最近 n 筆分派紀錄：選了哪個檔位、Jev 的機率、cache 讀寫量 |
 
-開啟後，prompt 下方的狀態列會顯示實際回答的模型，例如 `🍷 實際模型 haiku·medium（預設 opus）`。括號裡是 session 自己設定的模型，只有被 sommelier 換掉時才會出現。
+開啟後，prompt 下方的狀態列會顯示實際回答的模型與 effort，例如 `🍷 haiku·medium`。旁邊 Claude Code 自己顯示的是 session 的模型。
 
 `/somm` 如果被其他 plugin 占用，會自動改用 `/sommelier`。
 
@@ -153,7 +153,7 @@ opus·high · upgrade P=0.02/0.08/0.20/0.70 jev 410ms cache read 0 write 21530
 
 - **手動 `/model` 和 `/clear`**：手動切換模型、清除或恢復對話之後，sommelier 的行為還沒驗證完，結果可能不如預期。需要固定模型時，建議先 `/somm off`。
 - **不划算就不降級**：每個模型各有一份 cache，換模型要把對話寫進新模型的 cache。sommelier 會記下每個模型的 cache 涵蓋到哪裡：切到從沒用過、或閒置超過 cache 時效的模型要整段重寫；切回剛用過的模型只補差額；`/clear`、compact、resume 之後只剩系統提示還在 cache 裡。往下降時比較「重寫成本」和「預估 3 輪能省回的錢」，省不回來就這一句沿用原模型，下一個新話題再重新評估。往上升不受影響。價格用的是官方定價，寫在 `hooks/decide.ts`。
-- **模型選單顯示的是 session 模型**：sommelier 改的是每個送出的請求，不改 session 本身的模型，所以 `/model` 和 Desktop 的模型選單一直顯示原本的模型。實際回答的模型看狀態列的 `🍷 實際模型`。
+- **模型選單顯示的是 session 模型**：sommelier 改的是每個送出的請求，不改 session 本身的模型，所以 `/model` 和 Desktop 的模型選單一直顯示原本的模型。實際回答的模型看狀態列 🍷 後面的模型。
 - **Jev 判斷要時間**：每個請求的判斷最多等 1.5 秒（離線評測 p95 約 0.4 秒），短回覆不送 Jev、不用等。
 - **Desktop app**：Code tab 不能用 `/plugin configure` 輸入 API key，要改在終端機設定（見「安裝」）。
 

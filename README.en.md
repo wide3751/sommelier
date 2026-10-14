@@ -99,7 +99,7 @@ On by default after install; there is no need to run `/somm on`. Before a reques
 | `/somm status` | Show on/off, whether this project is turned off, whether the API key is set, and this session's rung |
 | `/somm log [n]` | The last n routing records: chosen rung, Jev's probabilities, cache reads and writes |
 
-When on, the status line under the prompt shows the model that actually answered, for example `🍷 實際模型 haiku·medium（預設 opus）` ("actual model … (default opus)"). The part in parentheses is the session's own model and appears only when sommelier replaced it.
+When on, the status line under the prompt shows the model and effort that actually answered, for example `🍷 haiku·medium`. The model Claude Code shows next to it is the session's own.
 
 If another plugin already uses `/somm`, the command falls back to `/sommelier`.
 
@@ -156,7 +156,7 @@ opus·high · upgrade P=0.02/0.08/0.20/0.70 jev 410ms cache read 0 write 21530
 
 - **Manual `/model` and `/clear`**: how sommelier behaves after you switch models by hand, or clear or resume a conversation, is still being verified and may not be what you expect. If you need a fixed model, run `/somm off` first.
 - **No downgrade that doesn't pay**: each model has its own cache, so a switch writes the conversation into the new model's cache. sommelier keeps track of how far each model's cache reaches: a model never used, or idle past the cache TTL, needs the whole conversation rewritten; going back to a model used moments ago only adds what is new; after `/clear`, compact or resume only the system prompt is still cached. Before a downgrade it weighs that rewrite against what about 3 turns on the cheaper model would save. If it doesn't pay, that request keeps the current model and the next new topic is weighed again. Upgrades are unaffected. Prices are the list prices in `hooks/decide.ts`.
-- **The model picker shows the session model**: sommelier changes each request it sends, not the session's own model, so `/model` and the Desktop model picker keep showing the original. The status line's `🍷 實際模型` shows which model actually answered.
+- **The model picker shows the session model**: sommelier changes each request it sends, not the session's own model, so `/model` and the Desktop model picker keep showing the original. The model after 🍷 in the status line is the one that actually answered.
 - **Judging takes time**: each request's judgment waits up to 1.5 s (offline eval p95 about 0.4 s); short replies are not sent and do not wait.
 - **Desktop app**: the Code tab cannot take the API key through `/plugin configure`; set it from a terminal instead (see Install).
 
