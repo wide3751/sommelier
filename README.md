@@ -127,6 +127,7 @@ Keychain 只有 macOS 才有；Windows 上 key 由 Claude Code 的 plugin 設定
 | `/somm off --project` | 只在目前的專案停用，這個專案的內容不會送出；`/somm on --project` 恢復 |
 | `/somm status` | 顯示開關、此專案是否停用、API key 是否設定、本 session 的檔位 |
 | `/somm log [n]` | 最近 n 筆分派紀錄：選了哪個檔位、Jev 的機率、cache 讀寫量 |
+| `/somm events` | 最近 20 筆狀態事件（換模型、清除或恢復對話、prompt 來源、每輪的分派結果），用來排查 sommelier 為什麼沒換模型 |
 
 開啟後，prompt 下方的狀態列會顯示實際回答的模型、版本與 effort，例如 `🍷 haiku 5.5·medium`。旁邊 Claude Code 自己顯示的是 session 的模型。
 
@@ -180,7 +181,8 @@ opus·high · 回答 opus · upgrade P=0.02/0.08/0.20/0.70 jev 410ms cache read 
 
 ## 限制
 
-- **手動 `/model` 和 `/clear`**：手動切換模型、清除或恢復對話之後，sommelier 的行為還沒驗證完，結果可能不如預期。需要固定模型時，建議先 `/somm off`。
+- **手動 `/model`**：用 `/model` 換模型之後，sommelier 就不再改模型，`/clear` 和恢復對話之後也一樣，直到你在 `/model` 選回 Default。Claude Code 自動 fallback 到其他模型之後也會停手，直到你手動 `/model`。
+- **不判斷的輪**：通知、排程、其他 session 或其他 plugin 送來的訊息，以及 slash 指令，都沿用目前的模型，不送給 Jev。session 模型不是 Opus／Sonnet／Haiku 5.5（例如 `[1m]` 版本或舊版）時，sommelier 不做任何改變。
 - **不划算就不降級**：每個模型各有一份 cache，換模型要把對話寫進新模型的 cache。sommelier 會記下每個模型的 cache 涵蓋到哪裡：切到從沒用過、或閒置超過 cache 時效的模型要整段重寫；切回剛用過的模型只補差額；`/clear`、compact、resume 之後只剩系統提示還在 cache 裡。往下降時比較「重寫成本」和「預估 3 輪能省回的錢」，省不回來就這一句沿用原模型，下一個新話題再重新評估。往上升不受影響。價格用的是官方定價，寫在 `hooks/decide.ts`。
 - **模型選單顯示的是 session 模型**：sommelier 改的是每個送出的請求，不改 session 本身的模型，所以 `/model` 和 Desktop 的模型選單一直顯示原本的模型。實際回答的模型看狀態列 🍷 後面的模型。
 - **Jev 判斷要時間**：每個請求的判斷最多等 1.5 秒（離線評測 p95 約 0.4 秒），短回覆不送 Jev、不用等。

@@ -19,7 +19,7 @@ function setup(
   opts: {
     enabled?: boolean; consent?: boolean; answer?: string | null; root?: string
     key?: string | null; jev?: (body: any) => any; messages?: any[]; contextTokens?: number | (() => number)
-    usage?: Record<string, number>
+    usage?: Record<string, number>; sessionModel?: string
   } = {},
 ) {
   const clock = mock.clock(on)
@@ -49,6 +49,10 @@ function setup(
   })
   mock.env(on, opts.key === null ? {} : { TYPESAFE_API_KEY: opts.key ?? 'test-key' })
   on('session.id', () => ({ value: 'sess1' }))
+  on('session.model', () => ({ value: opts.sessionModel ?? OPUS }))
+  on('prompt.submit', ($, e) => ({ text: e.text }))
+  on('classic.PreModelSwitch', () => ({}))
+  on('classic.PostModelSwitch', () => ({}))
   on('session.usage', () => ({ value: { startedAt: 0, context: { tokens: typeof opts.contextTokens === 'function' ? opts.contextTokens() : opts.contextTokens, window: 1000000 }, rateLimits: [] } }))
   on('session.messages', () => ({
     value: opts.messages ?? [
@@ -290,9 +294,9 @@ function sequence(...answers: any[]) {
   return () => answers[Math.min(i++, answers.length - 1)]
 }
 
-async function turn($, turnId, text) {
+async function turn($, turnId, text, model = OPUS) {
   await $.turn.start({ text, turnId })
-  await step($, turnId, 0)
+  await step($, turnId, 0, { model })
   await complete($, turnId)
 }
 
@@ -619,3 +623,154 @@ test('the status line shows the version of a dated model id', async ($, on) => {
   await step($, 't1', 0)
   expect(h.statuses.at(-1)).toBe('🍷 sonnet 5.5·medium')
 })
+
+// ticket 06：關卡
+
+const SONNET = 'claude-sonnet-5-5'
+const userSwitch = (to: string, requested: string | null) => ({ from_model: OPUS, to_model: to, requested_model: requested, source: 'command' as const, context_tokens: 0 })
+const status = async ($) => (await $.command.run({ command: 'somm', args: 'status' })).text
+
+test('after /model the session model is left alone and Jev is not called', async ($, on) => {
+  const h = setup(on, { enabled: true })
+  await $.classic.PreModelSwitch(userSwitch(SONNET, 'sonnet'))
+  await turn($, 't1', '設計多租戶權限架構', SONNET)
+  expect(h.fetches.length).toBe(0)
+  expect(h.sent[0].model).toBe(SONNET)
+  expect(records(h.saved)[0].reason).toBe('manual')
+  expect(await status($)).toContain('手動指定 sonnet 5.5')
+})
+
+test('picking Default again hands routing back', async ($, on) => {
+  const h = setup(on, { enabled: true })
+  await $.classic.PreModelSwitch(userSwitch(SONNET, 'sonnet'))
+  await turn($, 't1', '看一下 package.json 的 version', SONNET)
+  await $.classic.PreModelSwitch({ ...userSwitch(OPUS, null), from_model: SONNET })
+  await turn($, 't2', '看一下 package.json 的 version')
+  expect(h.fetches.length).toBe(1)
+  expect(rungs(h)).toEqual(['sonnet/medium', 'haiku/medium'])
+  expect(await status($)).not.toContain('手動指定')
+})
+
+test('a manual pick is kept after /clear', async ($, on) => {
+  const h = setup(on, { enabled: true })
+  await $.classic.PostModelSwitch(userSwitch(SONNET, 'sonnet'))
+  await $.classic.SessionStart({ source: 'clear', model: SONNET })
+  await turn($, 't1', '看一下 package.json 的 version', SONNET)
+  expect(h.fetches.length).toBe(0)
+  expect(h.sent[0].model).toBe(SONNET)
+})
+
+test('a manual pick is remembered when the session is resumed in a new process', async ($, on) => {
+  const h = setup(on, { enabled: true })
+  // What an earlier process left in the store for this session.
+  h.saved.set('somm:manual:sess1', SONNET)
+  await $.classic.SessionStart({ source: 'resume', model: SONNET })
+  await turn($, 't1', '看一下 package.json 的 version', SONNET)
+  expect(h.fetches.length).toBe(0)
+  expect(records(h.saved)[0].reason).toBe('manual')
+})
+
+test('picking Default forgets the stored pick', async ($, on) => {
+  const h = setup(on, { enabled: true })
+  await $.classic.PreModelSwitch(userSwitch(SONNET, 'sonnet'))
+  expect(h.saved.get('somm:manual:sess1')).toBe(SONNET)
+  await $.classic.PreModelSwitch({ ...userSwitch(OPUS, null), from_model: SONNET })
+  expect(h.saved.has('somm:manual:sess1')).toBe(false)
+})
+
+test('/clear on a model other than the one the session started with counts as a manual pick', async ($, on) => {
+  const h = setup(on, { enabled: true })
+  await $.classic.SessionStart({ source: 'startup', model: OPUS })
+  await $.classic.SessionStart({ source: 'clear', model: SONNET })
+  await turn($, 't1', '看一下 package.json 的 version', SONNET)
+  expect(h.fetches.length).toBe(0)
+  expect(records(h.saved)[0].reason).toBe('manual')
+})
+
+test('after an automatic fallback requests are left alone until the user runs /model', async ($, on) => {
+  const h = setup(on, { enabled: true })
+  await $.classic.PostModelSwitch({ ...userSwitch(SONNET, null), source: 'auto' })
+  await turn($, 't1', '看一下 package.json 的 version', SONNET)
+  expect(h.fetches.length).toBe(0)
+  expect(records(h.saved)[0].reason).toBe('fallback')
+  expect(await status($)).toContain('自動 fallback')
+  await $.classic.PreModelSwitch({ ...userSwitch(OPUS, null), from_model: SONNET })
+  await turn($, 't2', '看一下 package.json 的 version')
+  expect(h.fetches.length).toBe(1)
+  expect(rungs(h)).toEqual(['sonnet/medium', 'haiku/medium'])
+})
+
+test('a fallback in the middle of a turn holds for the rest of it', async ($, on) => {
+  const h = setup(on, { enabled: true })
+  await $.turn.start({ text: '看一下 package.json 的 version', turnId: 't1' })
+  await step($, 't1', 0)
+  await $.classic.PostModelSwitch({ ...userSwitch(SONNET, null), source: 'auto' })
+  await step($, 't1', 1, { model: SONNET })
+  expect(rungs(h)).toEqual(['haiku/medium', 'sonnet/medium'])
+})
+
+for (const model of ['claude-opus-4-6', 'claude-opus-5-5[1m]']) {
+  test('a session model outside the 5.5 family (' + model + ') is not routed and nothing is sent', async ($, on) => {
+    const h = setup(on, { enabled: true, sessionModel: model })
+    await turn($, 't1', '看一下 package.json 的 version', model)
+    expect(h.fetches.length).toBe(0)
+    expect(h.sent[0].model).toBe(model)
+    expect(records(h.saved)[0].reason).toBe('unsupported_session_model')
+  })
+}
+
+test('a dated 5.5 id is still routed', async ($, on) => {
+  const h = setup(on, { enabled: true, sessionModel: 'claude-opus-5-5-20261001' })
+  await turn($, 't1', '看一下 package.json 的 version', 'claude-opus-5-5-20261001')
+  expect(h.fetches.length).toBe(1)
+  expect(rungs(h)).toEqual(['haiku/medium'])
+})
+
+test('turns the user did not start keep the current rung without calling Jev', async ($, on) => {
+  const h = setup(on, { enabled: true })
+  await submitted($, '看一下 package.json 的 version', 'composer')
+  await turn($, 't1', '看一下 package.json 的 version')
+  for (const [i, kind] of ['task-notification', 'scheduled-trigger', 'peer', 'auto-continuation'].entries()) {
+    const text = '背景工作完成，請檢查結果並決定下一步 ' + i
+    await submitted($, text, kind)
+    await turn($, 'n' + i, text)
+  }
+  expect(h.fetches.length).toBe(1)
+  expect(new Set(rungs(h))).toEqual(new Set(['haiku/medium']))
+  expect(records(h.saved).at(-1).reason).toBe('continuation')
+})
+
+test('a plugin\'s prompt is not judged either', async ($, on) => {
+  const h = setup(on, { enabled: true })
+  await $.prompt.submit({ text: '請整理今天的工作紀錄', wait: false, origin: { kind: 'plugin', name: 'other' } })
+  await turn($, 't1', '請整理今天的工作紀錄')
+  expect(h.fetches.length).toBe(0)
+})
+
+test('slash commands keep the current rung and are not sent to Jev', async ($, on) => {
+  const h = setup(on, { enabled: true })
+  await turn($, 't1', '看一下 package.json 的 version')
+  await turn($, 't2', '/review 這個分支的變更')
+  expect(h.fetches.length).toBe(1)
+  expect(records(h.saved).at(-1).reason).toBe('slash_command')
+  expect(rungs(h)).toEqual(['haiku/medium', 'haiku/medium'])
+  // A pasted path is a prompt, not a command.
+  await turn($, 't3', '/Users/me/project/src/app.ts 這個檔案為什麼編譯失敗')
+  expect(h.fetches.length).toBe(2)
+})
+
+test('/somm events lists the state events seen', async ($, on) => {
+  setup(on, { enabled: true })
+  await $.classic.SessionStart({ source: 'startup', model: OPUS })
+  await $.classic.PreModelSwitch(userSwitch(SONNET, 'sonnet'))
+  await submitted($, 'hello there friend', 'composer')
+  await $.turn.start({ text: 'hello there friend', turnId: 't1' })
+  const text = (await $.command.run({ command: 'somm', args: 'events' })).text
+  expect(text).toContain('SessionStart source=startup')
+  expect(text).toContain('requested=sonnet source=command')
+  expect(text).toContain('origin=composer session.model=' + OPUS)
+})
+
+async function submitted($, text: string, kind: string) {
+  await $.prompt.submit({ text, wait: false, origin: { kind } as any })
+}
