@@ -174,6 +174,31 @@ test('high risk raises this turn to base with high effort, and only this turn', 
   expect(h.sent.map((s) => s.model + '/' + s.effort)).toEqual(['claude-opus-5-5/high', 'claude-opus-5-5/medium'])
 })
 
+test('the spinner shows high risk and how long Jev took', async ($, on) => {
+  let clockRef
+  const h = setup(on, {
+    enabled: true,
+    jev: async () => {
+      await clockRef.sleep(300)
+      return { status: 200, ok: true, headers: {}, text: jevBody([0.9, 0.1, 0, 0], 0.9, 0.9) }
+    },
+  })
+  clockRef = h.clock
+  const suffixes: string[] = []
+  on('ui.render', ($, e) => {
+    suffixes.push(e.props.suffix)
+    const { Text } = $.ui.resolve(e)
+    return Text({ children: e.props.message })
+  })
+  await $.turn.start({ text: 'CURRENT REQUEST', turnId: 't1' })
+  const done = step($, 't1', 0)
+  await h.clock.advance(300)
+  await done
+  await $.ui.render({ surface: 'terminal', component: 'Spinner', requestId: 'a1', props: { message: 'Thinking' } })
+  expect(suffixes.at(-1)).toContain(' · 高風險')
+  expect(suffixes.at(-1)).toContain(' · jev 300ms')
+})
+
 test('a Jev answer slower than 1.5 s leaves the request unchanged', async ($, on) => {
   let clockRef
   const h = setup(on, {

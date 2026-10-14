@@ -193,7 +193,9 @@ function spinnerText(decision) {
   if (!decision.rung) return 'session · ' + (decision.reason.startsWith('jev_failed') ? 'Jev 失敗' : REASON_LABEL[decision.reason] ?? decision.reason)
   const r = decision.rung
   const label = decision.reason.startsWith('jev_failed') ? 'Jev 失敗，沿用' : REASON_LABEL[decision.reason] ?? decision.reason
-  return r.model + '·' + r.effort + (decision.level !== undefined ? ' L' + decision.level : '') + ' · ' + (decision.newTopic ? '新話題，' : '') + label
+  const risk = decision.highRisk ? ' · 高風險' : ''
+  const jev = decision.jevMs != null ? ' · jev ' + decision.jevMs + 'ms' : ''
+  return r.model + '·' + r.effort + (decision.level !== undefined ? ' L' + decision.level : '') + ' · ' + (decision.newTopic ? '新話題，' : '') + label + risk + jev
 }
 
 async function writeRecord($, rec) {
