@@ -60,3 +60,27 @@ export function shortModel(id) {
   for (const [name, full] of Object.entries(MODEL_IDS)) if (id === full || id === name) return name
   return id
 }
+
+// Switching models mid-conversation rewrites the whole transcript into the new
+// model's prompt cache. Until ticket 05's cache ledger weighs that cost, the
+// first judgement is skipped once the transcript is this long.
+export const LONG_CONVERSATION_TOKENS = 20000
+
+// Rough token count of a transcript: CJK characters count one each, other
+// text one per four characters. Tool inputs and results are included, since
+// they are cached too.
+export function estimateTokens(messages) {
+  let cjk = 0
+  let other = 0
+  const add = (s) => {
+    const n = (s.match(/[　-鿿豈-﫿＀-￯]/g) || []).length
+    cjk += n
+    other += s.length - n
+  }
+  for (const m of messages) {
+    add(m.text || '')
+    for (const u of m.toolUses || []) add(JSON.stringify(u.input ?? ''))
+    for (const r of m.toolResults || []) add(r.text || '')
+  }
+  return cjk + Math.ceil(other / 4)
+}

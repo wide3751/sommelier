@@ -14,7 +14,7 @@ function jevBody(probs: number[], newTask = 0.9, highRisk = 0.05) {
 }
 
 // Common stubs. Returns handles the tests read.
-function setup(on, opts: { enabled?: boolean; key?: string | null; jev?: (body: any) => any } = {}) {
+function setup(on, opts: { enabled?: boolean; key?: string | null; jev?: (body: any) => any; messages?: any[] } = {}) {
   const clock = mock.clock(on)
   const saved = new Map<string, unknown>()
   if (opts.enabled) saved.set('somm:enabled', true)
@@ -31,7 +31,7 @@ function setup(on, opts: { enabled?: boolean; key?: string | null; jev?: (body: 
   mock.env(on, opts.key === null ? {} : { TYPESAFE_API_KEY: opts.key ?? 'test-key' })
   on('session.id', () => ({ value: 'sess1' }))
   on('session.messages', () => ({
-    value: [
+    value: opts.messages ?? [
       { role: 'user', text: '登入偶爾 401，幫我查原因', toolUses: [] },
       { role: 'assistant', text: '我先看 middleware。', toolUses: [{ name: 'Read' }] },
       { role: 'user', text: '', toolUses: [], toolResults: [{ tool_use_id: 'x', text: 'FILE CONTENT SHOULD NOT BE SENT' }] },
@@ -60,7 +60,12 @@ function setup(on, opts: { enabled?: boolean; key?: string | null; jev?: (body: 
     statuses.push(e.text)
     return { value: undefined }
   })
-  return { clock, saved, fetches, sent, statuses }
+  const toasts: string[] = []
+  on('ui.toast', ($, e) => {
+    toasts.push(e.text)
+    return { value: undefined }
+  })
+  return { clock, saved, fetches, sent, statuses, toasts }
 }
 
 async function drain(stream) {
@@ -214,4 +219,27 @@ test('the status line stays empty while off and clears on /somm off', async ($, 
   expect(h.statuses.filter((s) => s !== undefined).length).toBe(0)
   await $.command.run({ command: 'somm', args: 'off' })
   expect(h.statuses.at(-1)).toBe(undefined)
+})
+
+test('a long conversation keeps the session model without calling Jev, and says so once', async ($, on) => {
+  const longResult = { tool_use_id: 'x', text: 'x'.repeat(100000), isError: false }
+  const h = setup(on, {
+    enabled: true,
+    messages: [
+      { role: 'user', text: '先看一下這個檔案', toolUses: [] },
+      { role: 'user', text: '', toolUses: [], toolResults: [longResult] },
+      { role: 'assistant', text: '看完了。', toolUses: [] },
+      { role: 'user', text: 'CURRENT', toolUses: [] },
+    ],
+  })
+  await $.turn.start({ text: 'CURRENT', turnId: 't1' })
+  await step($, 't1', 0)
+  await complete($, 't1')
+  await $.turn.start({ text: 'again', turnId: 't2' })
+  await step($, 't2', 0)
+  expect(h.fetches.length).toBe(0)
+  expect(h.sent.map((s) => s.model)).toEqual([OPUS, OPUS])
+  expect(records(h.saved)[0].reason).toBe('long_conversation')
+  expect(h.toasts.length).toBe(1)
+  expect(h.statuses.at(-1)).toBe('🍷 實際模型 opus·medium')
 })

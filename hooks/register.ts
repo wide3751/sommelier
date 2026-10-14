@@ -9,7 +9,7 @@
 // imported function); the routing logic itself lives in decide.ts / jevState.ts.
 
 import { JEV } from './questions.ts'
-import { modelId, shortModel, targetRung } from './decide.ts'
+import { LONG_CONVERSATION_TOKENS, estimateTokens, modelId, shortModel, targetRung } from './decide.ts'
 import { buildJevState } from './jevState.ts'
 
 const COMMAND = 'somm'
@@ -20,7 +20,7 @@ const REC_CAP = 500
 const JEV_URL = 'https://api.typesafe.ai/v1/systemone'
 const JEV_TIMEOUT_MS = 1500
 
-const REASON_LABEL = { first_turn: '新話題', continuation: '沿用', no_judgement: '尚未判斷' }
+const REASON_LABEL = { first_turn: '新話題', continuation: '沿用', no_judgement: '尚未判斷', long_conversation: '對話已長，不換模型' }
 
 let configKey = ''
 // Jev requests started at turn.start, keyed by turnId so a queued prompt never
@@ -32,6 +32,8 @@ const turns = new Map()
 // ticket 05 replaces it with per-sentence routing.
 let sessionRung = null
 let lastShown = ''
+// The long-conversation toast is shown once per session.
+let warnedLong = false
 
 async function isEnabled($) {
   return (await $.store.get(ENABLED_KEY)) === true
@@ -58,11 +60,11 @@ async function callJev($, key, state) {
   }
 }
 
-async function judge($, text) {
+async function judge($, text, messages) {
   const t0 = await $.clock.now()
   const key = await apiKey($)
   if (!key) return { error: 'no_key', ms: 0 }
-  const state = buildJevState(await $.session.messages(), text)
+  const state = buildJevState(messages, text)
   const result = await callJev($, key, state)
   return { ...result, ms: (await $.clock.now()) - t0 }
 }
@@ -86,6 +88,7 @@ async function decideTurn($, e) {
   if (p) {
     pending.delete(e.turnId)
     const j = await waitCapped($, p)
+    if (j.skip) return { rung: null, reason: j.skip }
     if (j.error) return { rung: null, reason: 'jev_failed:' + j.error, jevMs: j.ms ?? null }
     const d = targetRung(j.answers)
     // A high-risk effort bump applies to this turn only.
@@ -190,7 +193,16 @@ export function register(on, options) {
 
   on('turn.start', async ($, e, next) => {
     if (e.text !== '' && !sessionRung && (await isEnabled($))) {
-      pending.set(e.turnId, judge($, e.text))
+      const messages = await $.session.messages()
+      if (estimateTokens(messages) > LONG_CONVERSATION_TOKENS) {
+        pending.set(e.turnId, Promise.resolve({ skip: 'long_conversation' }))
+        if (!warnedLong) {
+          warnedLong = true
+          $.ui.toast('sommelier：對話已長，換模型要重寫整段 cache，這個 session 先不換。開新 session 或 /clear 後再判斷')
+        }
+      } else {
+        pending.set(e.turnId, judge($, e.text, messages))
+      }
     }
     return next(e)
   })
