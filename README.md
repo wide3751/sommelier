@@ -133,6 +133,8 @@ Keychain 只有 macOS 才有；Windows 上 key 由 Claude Code 的 plugin 設定
 
 `/somm` 如果被其他 plugin 占用，會自動改用 `/sommelier`。
 
+**自己指定模型（覆寫）**：在 prompt 開頭寫 `somm:opus`、`somm:sonnet` 或 `somm:haiku`（不分大小寫），這一句就用指定的模型（effort medium），不送 Jev。前綴會先拿掉，模型看不到。之後同一個話題都沿用這個模型，直到 Jev 判斷出新話題、`/clear` 或你用 `/model` 換模型為止。只寫前綴、不寫內容時不會送出任何東西，只設定接下來要用的模型。換模型要重寫 cache 時，會跳出提示說明要重寫多少 token、大約多少錢。
+
 **每個請求怎麼決定：**
 - **升級**：判斷需要較強的模型或較高的 effort 時，隨時往上換
 - **高風險**：會刪除或覆寫資料、改正式環境或權限的請求，模型至少換到 base（預設 opus），這一句 effort 提高為 high，下一句恢復原本的 effort

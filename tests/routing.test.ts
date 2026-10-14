@@ -50,7 +50,11 @@ function setup(
   mock.env(on, opts.key === null ? {} : { TYPESAFE_API_KEY: opts.key ?? 'test-key' })
   on('session.id', () => ({ value: 'sess1' }))
   on('session.model', () => ({ value: opts.sessionModel ?? OPUS }))
-  on('prompt.submit', ($, e) => ({ text: e.text }))
+  const prompts: string[] = []
+  on('prompt.submit', ($, e) => {
+    prompts.push(e.text)
+    return { text: e.text }
+  })
   on('classic.PreModelSwitch', () => ({}))
   on('classic.PostModelSwitch', () => ({}))
   on('session.usage', () => ({ value: { startedAt: 0, context: { tokens: typeof opts.contextTokens === 'function' ? opts.contextTokens() : opts.contextTokens, window: 1000000 }, rateLimits: [] } }))
@@ -91,7 +95,7 @@ function setup(
     toasts.push(e.text)
     return { value: undefined }
   })
-  return { clock, saved, fetches, sent, statuses, toasts, asked, order }
+  return { clock, saved, fetches, sent, statuses, toasts, asked, order, prompts }
 }
 
 async function drain(stream) {
@@ -827,6 +831,109 @@ test('a manual model still wins over ultrathink', async ($, on) => {
   const h = setup(on, { enabled: true })
   await $.classic.PreModelSwitch(userSwitch(SONNET, 'sonnet'))
   await turn($, 't1', 'ultrathink 這個 bug 怎麼修', SONNET)
+  expect(h.sent[0].model).toBe(SONNET)
+  expect(records(h.saved)[0].reason).toBe('manual')
+})
+
+// ticket 08：單輪覆寫 somm:
+
+// A prompt as the user types it: prompt.submit, then the turn with whatever text entered.
+async function typed($, turnId: string, text: string, model = OPUS) {
+  const entered = await $.prompt.submit({ text, wait: false, origin: { kind: 'composer' } })
+  if (entered.drop) return entered
+  await turn($, turnId, entered.text, model)
+  return entered
+}
+
+test('somm:haiku is stripped before the model sees it, and Jev is not asked', async ($, on) => {
+  const h = setup(on, { enabled: true })
+  await typed($, 't1', 'somm:haiku 設計多租戶權限架構')
+  expect(h.prompts).toEqual(['設計多租戶權限架構'])
+  expect(h.fetches.length).toBe(0)
+  expect(rungs(h)).toEqual(['haiku/medium'])
+  expect(records(h.saved)[0].reason).toBe('override')
+})
+
+test('an override holds on the same topic, and a new topic is judged again', async ($, on) => {
+  const h = setup(on, { enabled: true, jev: sequence(ok(L3, 0.1), ok(L3, 0.9)) })
+  await typed($, 't1', 'somm:sonnet 幫 parseDate 加上時區參數')
+  await typed($, 't2', '順便把整個日期模組重新設計一遍')
+  expect(records(h.saved).at(-1).reason).toBe('override_locked')
+  expect(await status($)).toContain('覆寫鎖定 sonnet·medium')
+  await typed($, 't3', '另外設計多租戶權限架構')
+  expect(rungs(h)).toEqual(['sonnet/medium', 'sonnet/medium', 'opus/high'])
+  expect(await status($)).not.toContain('覆寫鎖定')
+})
+
+test('an override goes down even when the cost rule would block it, and says what the rewrite costs', async ($, on) => {
+  let ctx = 0
+  const h = setup(on, { enabled: true, contextTokens: () => ctx, jev: sequence(ok(L3)) })
+  await typed($, 't1', '設計多租戶權限架構')
+  ctx = 120000
+  await typed($, 't2', 'somm:haiku 看一下 package.json 的 version')
+  expect(rungs(h)).toEqual(['opus/high', 'haiku/medium'])
+  expect(h.toasts.at(-1)).toContain('覆寫為 haiku，要重寫 120k tokens')
+})
+
+test('an override on the session model rewrites nothing and stays quiet', async ($, on) => {
+  const h = setup(on, { enabled: true, contextTokens: 50000 })
+  await typed($, 't1', 'somm:opus 看一下 package.json 的 version')
+  expect(rungs(h)).toEqual(['opus/medium'])
+  expect(h.toasts.length).toBe(0)
+})
+
+test('a bare prefix sends nothing and sets the rung for what follows', async ($, on) => {
+  const h = setup(on, { enabled: true, jev: sequence(ok(L3, 0.1)) })
+  const entered = await typed($, 't0', 'somm:sonnet')
+  expect(entered.drop).toContain('sonnet·medium')
+  expect(h.sent.length).toBe(0)
+  await typed($, 't1', '登入偶爾 401，找出原因')
+  expect(rungs(h)).toEqual(['sonnet/medium'])
+})
+
+test('a locked haiku is not moved to sonnet as the conversation grows', async ($, on) => {
+  let ctx = 0
+  const h = setup(on, { enabled: true, contextTokens: () => ctx })
+  await typed($, 't1', 'somm:haiku 看一下 package.json 的 version')
+  ctx = 80000
+  await typed($, 't2', '好')
+  expect(rungs(h)).toEqual(['haiku/medium', 'haiku/medium'])
+})
+
+test('/clear ends an override', async ($, on) => {
+  const h = setup(on, { enabled: true, jev: sequence(ok(L3, 0.1)) })
+  await typed($, 't1', 'somm:haiku 看一下 package.json 的 version')
+  await $.classic.SessionStart({ source: 'clear' })
+  await typed($, 't2', '登入偶爾 401，找出原因')
+  expect(rungs(h)).toEqual(['haiku/medium', 'opus/high'])
+})
+
+for (const text of ['somm:opusx 看一下 version', '請用 somm:haiku 看一下 version', 'somm:auto 看一下 version']) {
+  test('only a known model at the very start is an override (' + text.slice(0, 11) + ')', async ($, on) => {
+    const h = setup(on, { enabled: true })
+    await typed($, 't1', text)
+    expect(h.prompts).toEqual([text])
+    expect(h.fetches.length).toBe(1)
+  })
+}
+
+test('the prefix is not case sensitive', async ($, on) => {
+  const h = setup(on, { enabled: true })
+  await typed($, 't1', 'SOMM:Sonnet 幫 parseDate 加上時區參數')
+  expect(h.prompts).toEqual(['幫 parseDate 加上時區參數'])
+  expect(rungs(h)).toEqual(['sonnet/medium'])
+})
+
+test('a prefix in a message the user did not send is left as it is', async ($, on) => {
+  const h = setup(on, { enabled: true })
+  await $.prompt.submit({ text: 'somm:haiku 背景工作完成', wait: false, origin: { kind: 'task-notification' } })
+  expect(h.prompts).toEqual(['somm:haiku 背景工作完成'])
+})
+
+test('a manual model still wins over an override', async ($, on) => {
+  const h = setup(on, { enabled: true })
+  await $.classic.PreModelSwitch(userSwitch(SONNET, 'sonnet'))
+  await typed($, 't1', 'somm:haiku 看一下 package.json 的 version', SONNET)
   expect(h.sent[0].model).toBe(SONNET)
   expect(records(h.saved)[0].reason).toBe('manual')
 })
