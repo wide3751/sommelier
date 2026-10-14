@@ -75,6 +75,24 @@ export function targetRung(answers, cfg = {}) {
   return { rung, level, highRisk: risky, newTask: answers.new_task?.noul ?? null }
 }
 
+// Only the 5.5 family is routed (docs/spec.md「分派決策」2). Compared by full
+// id with any date suffix dropped, never by alias; a `[1m]` variant is not one.
+export function isSupportedModel(id) {
+  const bare = String(id ?? '').replace(/-\d{8}$/, '')
+  return Object.values(MODEL_IDS).includes(bare)
+}
+
+// A slash command as typed: "/name" or "/plugin:name", then a space or the end.
+// A pasted path such as /Users/me/x is not one.
+export function isSlashCommand(text) {
+  return /^\/[A-Za-z][\w:.-]*(\s|$)/.test(text)
+}
+
+// Prompt origins (PromptOrigin.kind) that are the user's own words. Any other
+// origin — a notification, a schedule, a peer, a plugin — carries on the
+// current rung without a judgement.
+export const USER_ORIGINS = ['composer', 'bridge', 'sdk', 'slack-ping']
+
 export function modelId(model) {
   return MODEL_IDS[model] ?? model
 }

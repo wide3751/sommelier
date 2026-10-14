@@ -4,15 +4,17 @@
 // rung of the ladder (ticket 05): upgrades always go ahead, downgrades only on a
 // new topic when the cache ledger says the switch pays. Short replies and Jev
 // failures keep the current rung. Ticket 09 (privacy): consent before the first
-// send, redaction, per-project off. Guards, overrides and the full UI arrive in
-// later tickets.
+// send, redaction, per-project off. Ticket 06 (guards): a model the user picked,
+// an automatic fallback or an unsupported session model is left alone; turns the
+// user did not start and slash commands keep the current rung. Overrides and the
+// full UI arrive in later tickets.
 //
 // Every mods API call stays in this file (validation forbids passing `$` to an
 // imported function); the routing logic itself lives in decide.ts / jevState.ts /
 // redact.ts.
 
 import { JEV } from './questions.ts'
-import { DEFAULT_TURN, cacheTtl, isShortReply, ledgerEntry, markCold, modelId, modelLabel, qualityGuard, route, shortModel } from './decide.ts'
+import { DEFAULT_TURN, USER_ORIGINS, cacheTtl, isShortReply, isSlashCommand, isSupportedModel, ledgerEntry, markCold, modelId, modelLabel, qualityGuard, route, shortModel } from './decide.ts'
 import { buildJevState } from './jevState.ts'
 import { redact } from './redact.ts'
 
@@ -27,6 +29,7 @@ const CONSENT_QUESTION =
 const CONSENT_AGREE = '同意，開始使用'
 const CONSENT_DECLINE = '不同意，關閉 sommelier'
 const REC_PREFIX = 'somm:rec:'
+const MANUAL_PREFIX = 'somm:manual:'
 const REC_CAP = 500
 const JEV_URL = 'https://api.typesafe.ai/v1/systemone'
 const JEV_TIMEOUT_MS = 1500
@@ -34,7 +37,9 @@ const JEV_TIMEOUT_MS = 1500
 const REASON_LABEL = {
   upgrade: '升級', downgrade: '降級', hold: '沿用', continuation: '沿用', cost_blocked: '換模型不划算，沿用',
   quality_guard: '對話太長，改用 sonnet', project_off: '專案停用', consent_declined: '未同意送出', consent_unanswered: '尚未確認送出',
+  manual: '手動指定', fallback: '自動 fallback', unsupported_session_model: '不支援的模型', slash_command: '沿用',
 }
+const EVENT_CAP = 20
 
 let configKey = ''
 // Jev requests started at turn.start, keyed by turnId so a queued prompt never
@@ -58,6 +63,41 @@ let lastShown = ''
 const seen = { turns: 0, output: 0, fresh: 0 }
 // The cache TTL the last main response wrote, as its usage reported it.
 let lastTtl = '1h'
+// 手動指定: the model the user switched the session to, until they pick
+// Default again. Kept across /clear, and in the store per session so a resume
+// in a new process still knows.
+let manual = null
+// Set by an automatic fallback; only the user's own /model clears it.
+let fallback = false
+// The session model at startup, to tell a manual pick that /clear forgot.
+let launchModel = null
+// Origins of submitted prompts not yet started, oldest first: { text, kind }.
+const origins = []
+// Turns that keep the current rung without a judgement, keyed by turnId, with why.
+const skipped = new Map()
+// The last few state events seen, for /somm events (ticket 02).
+const events = []
+
+function note(text) {
+  events.push(text)
+  if (events.length > EVENT_CAP) events.shift()
+}
+
+// The origin a submitted prompt carried, matched by its text; unknown (null)
+// when the turn was not seen at prompt.submit.
+function takeOrigin(text) {
+  const i = origins.findIndex((o) => o.text === text)
+  if (i < 0) return null
+  return origins.splice(i, 1)[0].kind
+}
+
+// Guards that leave the request to the session (docs/spec.md「分派決策」2–4).
+function passReason(model) {
+  if (model && !isSupportedModel(model)) return 'unsupported_session_model'
+  if (manual) return 'manual'
+  if (fallback) return 'fallback'
+  return null
+}
 
 async function isEnabled($) {
   // Unset means a fresh install: on until the user runs /somm off.
@@ -87,6 +127,21 @@ async function askConsent($) {
   await $.store.set(ENABLED_KEY, false)
   $.ui.toast('sommelier 已關閉，之後可用 /somm on 重新開啟')
   return 'declined'
+}
+
+// The user's own switch (/model, the picker, /config, the SDK). Default
+// (requested_model null) hands the session back to sommelier. Either way
+// the user has chosen, so a fallback no longer holds.
+async function userSwitch($, e) {
+  fallback = false
+  await setManual($, e.requested_model === null ? null : e.to_model)
+}
+
+async function setManual($, model) {
+  manual = model
+  const key = MANUAL_PREFIX + (await $.session.id())
+  if (model) await $.store.set(key, model)
+  else await $.store.delete(key)
 }
 
 async function apiKey($) {
@@ -148,11 +203,18 @@ async function decideTurn($, e) {
   if (why) return { rung: null, reason: why }
   if (!(await isEnabled($))) return { rung: null, reason: 'off' }
   if (await projectOff($)) return { rung: null, reason: 'project_off' }
+  const pass = passReason(e.model)
+  if (pass) {
+    // The session model answers now, so that is where the cache is.
+    currentRung = null
+    pending.delete(e.turnId)
+    return { rung: null, reason: pass }
+  }
   // contextTokens is absent before the session's first response: nothing is
   // cached yet, so any switch is free.
   const contextTokens = (await $.session.usage()).context.tokens ?? 0
   const p = pending.get(e.turnId)
-  if (!p) return keep('continuation', contextTokens)
+  if (!p) return keep(skipped.get(e.turnId) ?? 'continuation', contextTokens)
   pending.delete(e.turnId)
   const j = await waitCapped($, p)
   // A failed judgement keeps the current rung: falling back to the session
@@ -250,9 +312,13 @@ async function runCommand($, e) {
     const key = (await apiKey($)) ? '已設定' : '未設定'
     const rung = currentRung ? currentRung.model + '·' + currentRung.effort : judgedTurns ? 'session 模型' : '（尚未判斷）'
     const project = (await projectOff($)) ? '｜此專案停用' : ''
-    return { text: 'sommelier ' + (on ? '開啟' : '關閉') + project + '｜API key ' + key + '｜本 session 檔位 ' + rung }
+    const guard = manual ? '｜手動指定 ' + modelLabel(manual) + '（選回 Default 恢復）' : fallback ? '｜自動 fallback 中（手動 /model 後恢復）' : ''
+    return { text: 'sommelier ' + (on ? '開啟' : '關閉') + project + guard + '｜API key ' + key + '｜本 session 檔位 ' + rung }
   }
-  return { text: '用法：/somm on | off [--project] | status | log [n]' }
+  if (sub === 'events') {
+    return { text: events.length ? events.join('\n') : '（還沒有觀察到事件）' }
+  }
+  return { text: '用法：/somm on | off [--project] | status | log [n] | events' }
 }
 
 export function register(on, options) {
@@ -262,16 +328,16 @@ export function register(on, options) {
     try {
       await $.command.register({
         name: COMMAND,
-        description: 'sommelier：依任務挑模型與 effort（on | off | status | log）',
-        argumentHint: '[on | off | status | log [n]]',
+        description: 'sommelier：依任務挑模型與 effort（on | off | status | log | events）',
+        argumentHint: '[on | off | status | log [n] | events]',
         immediate: true,
       })
     } catch {
       // /somm is taken: register the long name instead and say so.
       await $.command.register({
         name: FALLBACK_COMMAND,
-        description: 'sommelier：依任務挑模型與 effort（on | off | status | log）',
-        argumentHint: '[on | off | status | log [n]]',
+        description: 'sommelier：依任務挑模型與 effort（on | off | status | log | events）',
+        argumentHint: '[on | off | status | log [n] | events]',
         immediate: true,
       })
       $.ui.toast('/somm 已被占用，請改用 /sommelier')
@@ -282,10 +348,46 @@ export function register(on, options) {
   // /clear starts a new conversation; compact and resume rewrite it. Either
   // way the cached conversation is gone and only the stable prefix survives.
   on('classic.SessionStart', async ($, e, next) => {
+    // e.model is absent on startup and /clear (ticket 02), so ask the session.
+    let model = e.model ?? null
+    try {
+      model = model ?? (await $.session.model())
+    } catch {}
+    note('SessionStart source=' + e.source + ' model=' + model)
+    if (e.source === 'startup') launchModel = model
     if (e.source !== 'startup') ledger = markCold(ledger)
+    if (e.source === 'resume') manual = (await $.store.get(MANUAL_PREFIX + (await $.session.id()))) ?? manual
     if (e.source === 'clear') {
       currentRung = null
       judgedTurns = 0
+      // /clear starts a new session id; the pick carries over to it. A session
+      // model that is not the one it started with was picked by hand too.
+      if (!manual && launchModel && model && model !== launchModel) manual = model
+      if (manual) await setManual($, manual)
+    }
+    return next(e)
+  })
+
+  on('classic.PreModelSwitch', async ($, e, next) => {
+    note('PreModelSwitch ' + e.from_model + ' → ' + e.to_model + ' requested=' + e.requested_model + ' source=' + e.source)
+    await userSwitch($, e)
+    return next(e)
+  })
+
+  on('classic.PostModelSwitch', async ($, e, next) => {
+    note('PostModelSwitch ' + e.from_model + ' → ' + e.to_model + ' requested=' + e.requested_model + ' source=' + e.source)
+    if (e.source === 'auto') fallback = true
+    else if (e.source !== 'resume') await userSwitch($, e)
+    return next(e)
+  })
+
+  on('prompt.submit', async ($, e, next) => {
+    const kind = e.origin ? e.origin.kind : 'none'
+    note('prompt.submit origin=' + kind + (e.turnId ? ' into ' + e.turnId : ''))
+    // A prompt typed into a running turn joins it, so no turn.start follows.
+    if (!e.turnId) {
+      origins.push({ text: e.text, kind })
+      if (origins.length > EVENT_CAP) origins.shift()
     }
     return next(e)
   })
@@ -295,7 +397,21 @@ export function register(on, options) {
 
   on('turn.start', async ($, e, next) => {
     prompts.set(e.turnId, e.text)
-    if (e.text !== '' && !isShortReply(e.text) && (await isEnabled($)) && !(await projectOff($))) {
+    const origin = takeOrigin(e.text)
+    let sessionModel = null
+    try {
+      sessionModel = await $.session.model()
+    } catch {}
+    note('turn.start ' + e.turnId + ' origin=' + origin + ' session.model=' + sessionModel + (isSlashCommand(e.text) ? ' slash' : ''))
+    if (origin && !USER_ORIGINS.includes(origin)) skipped.set(e.turnId, 'continuation')
+    else if (isSlashCommand(e.text)) skipped.set(e.turnId, 'slash_command')
+    // A full id outside the 5.5 family is not routed, so nothing is sent; an
+    // alias waits for turn.step's full id.
+    const unsupported = sessionModel && sessionModel.startsWith('claude-') && !isSupportedModel(sessionModel)
+    if (
+      e.text !== '' && !isShortReply(e.text) && !skipped.has(e.turnId) && !manual && !fallback && !unsupported &&
+      (await isEnabled($)) && !(await projectOff($))
+    ) {
       // Without a key nothing would be sent, so there is nothing to consent to.
       const consent = (await apiKey($)) ? await askConsent($) : 'agreed'
       if (consent === 'agreed') pending.set(e.turnId, judge($, e.text, await $.session.messages()))
@@ -310,10 +426,12 @@ export function register(on, options) {
     if (!t) {
       t = { decision: await decideTurn($, e), steps: 0, input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }
       turns.set(e.turnId, t)
+      note('turn.step ' + e.turnId + ' model=' + e.model + ' → ' + (t.decision.rung ? t.decision.rung.model : 'session') + ' (' + t.decision.reason + ')')
       lastShown = spinnerText(t.decision)
       $.ui.invalidate('ui.render')
     }
-    const rung = t.decision.rung
+    // A fallback mid-turn: the engine's choice stands for the rest of it.
+    const rung = fallback ? null : t.decision.rung
     const out = rung ? { ...e, model: modelId(rung.model), effort: rung.effort } : e
     const result = yield* next(out)
     const u = result.usage
@@ -335,6 +453,7 @@ export function register(on, options) {
   on('turn.complete', async ($, e, next) => {
     pending.delete(e.turnId)
     blocked.delete(e.turnId)
+    skipped.delete(e.turnId)
     const prompt = prompts.get(e.turnId)
     prompts.delete(e.turnId)
     const t = turns.get(e.turnId)

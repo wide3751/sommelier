@@ -106,6 +106,7 @@ On by default after install; there is no need to run `/somm on`. Before a reques
 | `/somm off --project` | Turn off for the current project only, so nothing from it is sent; `/somm on --project` undoes it |
 | `/somm status` | Show on/off, whether this project is turned off, whether the API key is set, and this session's rung |
 | `/somm log [n]` | The last n routing records: chosen rung, Jev's probabilities, cache reads and writes |
+| `/somm events` | The last 20 state events (model switches, cleared or resumed conversations, prompt origins, each turn's routing), for finding out why sommelier did not switch |
 
 When on, the status line under the prompt shows the model, its version and the effort that actually answered, for example `🍷 haiku 5.5·medium`. The model Claude Code shows next to it is the session's own.
 
@@ -162,7 +163,8 @@ opus·high · 回答 opus · upgrade P=0.02/0.08/0.20/0.70 jev 410ms cache read 
 
 ## Limitations
 
-- **Manual `/model` and `/clear`**: how sommelier behaves after you switch models by hand, or clear or resume a conversation, is still being verified and may not be what you expect. If you need a fixed model, run `/somm off` first.
+- **Manual `/model`**: once you switch models with `/model`, sommelier stops changing the model, across `/clear` and resume too, until you pick Default in `/model`. After Claude Code falls back to another model on its own, sommelier also stands back until you run `/model` yourself.
+- **Turns that are not judged**: messages from notifications, schedules, other sessions or other plugins, and slash commands, keep the current model and are not sent to Jev. When the session model is not Opus, Sonnet or Haiku 5.5 (a `[1m]` variant or an older version, say), sommelier changes nothing.
 - **No downgrade that doesn't pay**: each model has its own cache, so a switch writes the conversation into the new model's cache. sommelier keeps track of how far each model's cache reaches: a model never used, or idle past the cache TTL, needs the whole conversation rewritten; going back to a model used moments ago only adds what is new; after `/clear`, compact or resume only the system prompt is still cached. Before a downgrade it weighs that rewrite against what about 3 turns on the cheaper model would save. If it doesn't pay, that request keeps the current model and the next new topic is weighed again. Upgrades are unaffected. Prices are the list prices in `hooks/decide.ts`.
 - **The model picker shows the session model**: sommelier changes each request it sends, not the session's own model, so `/model` and the Desktop model picker keep showing the original. The model after 🍷 in the status line is the one that actually answered.
 - **Judging takes time**: each request's judgment waits up to 1.5 s (offline eval p95 about 0.4 s); short replies are not sent and do not wait.
