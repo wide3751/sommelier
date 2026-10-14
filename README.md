@@ -62,39 +62,70 @@ printf '{"typesafe_api_key":"%s"}' "$TYPESAFE_API_KEY" | claude plugin configure
 - Jev 逾時（1.5 秒）、回傳錯誤，或沒有設定 API key
 - subagent 的請求
 
-**隱私**：開啟後，每次判斷會把「這一句」和「最近 3 輪對話的文字」送到 TypeSafe，不包含檔案內容與工具輸出。送出前遮蔽密鑰、依專案停用等功能規劃在 ticket 09。
+### 範例
 
-## 開發
-
-```bash
-claude --plugin-dir ~/Projects/sommelier   # 載入開發中的版本，存檔後自動重新載入
-claude plugin validate ~/Projects/sommelier
-cd ~/Projects/sommelier && claude plugin test
-```
-
-正式安裝的版本會依 `plugin.json` 的 `version` 快取一份副本。改了程式碼後要先把版本號加一，再重新安裝，改動才會生效。開發時建議用 `--plugin-dir`。
-
-**離線評測**：不經過 Claude Code，直接呼叫 Jev，量測判斷品質與延遲：
-
-```bash
-TYPESAFE_API_KEY=... python3 eval/run_eval.py --tag 名稱
-```
-
-題目定義只有一份，放在 [hooks/questions.ts](hooks/questions.ts)，mod 和評測腳本共用。題庫在 [eval/dataset.jsonl](eval/dataset.jsonl)，報告輸出到 `eval/reports/`。
-
-## 專案結構
+開啟後送出「幫 parseDate 加上時區參數」，Jev 判斷為 L1，spinner 會顯示：
 
 ```
-hooks/
-  register.ts    mod 進入點：指令、turn 事件、呼叫 Jev（所有 $ 呼叫都在這裡）
-  decide.ts      分派邏輯：階梯表與累積機率規則（純函式）
-  jevState.ts    組成送給 Jev 的對話內容（只取文字、保留結尾）
-  questions.ts   送給 Jev 的三題定義
-tests/           claude plugin test 的自動化測試
-eval/            離線評測題庫、腳本與報告
-GLOSSARY.md      領域用語
+sonnet·medium L1 · 新話題
 ```
+
+之後的每一輪沿用同一個檔位：
+
+```
+sonnet·medium · 沿用
+```
+
+`/somm status`：
+
+```
+sommelier 開啟｜API key 已設定｜本 session 檔位 sonnet·medium
+```
+
+`/somm log 3`：P 是 Jev 判斷為 L0／L1／L2／L3 的機率；判斷失敗的那一輪會顯示 `session`，沿用原本的模型：
+
+```
+sonnet·medium · first_turn P=0.05/0.90/0.05/0.00 jev 820ms cache read 0 write 18342
+sonnet·medium · continuation cache read 18342 write 1204
+session · jev_failed:timeout cache read 0 write 15873
+```
+
+## 限制
+
+- **只判斷第一句**：開啟後只有 session 的第一個請求交給 Jev 判斷，之後每一輪都沿用同一個檔位。換話題不會重新判斷。
+- **手動 `/model` 和 `/clear`**：手動切換模型、清除或恢復對話之後，sommelier 的行為還沒驗證完，結果可能不如預期。需要固定模型時，建議先 `/somm off`。
+- **Jev 判斷要時間**：每次判斷最多等 1.5 秒，第一個請求的回應會稍微慢一點。
+- **Desktop app**：Code tab 不能用 `/plugin configure` 輸入 API key，要改在終端機設定（見「安裝」）。
+
+## 疑難排解
+
+| 症狀 | 做法 |
+|---|---|
+| `/somm status` 顯示「API key 未設定」 | 照「安裝」第 2 步重新設定。只靠環境變數的話，確認啟動 Claude Code 的 shell 讀得到 `TYPESAFE_API_KEY`；從 Dock 開啟的 Desktop app 讀不到 `~/.zshrc` |
+| spinner 顯示「session · Jev 失敗」 | 用 `/somm log` 看原因：`no_key` 是沒有 key，`timeout` 是超過 1.5 秒，`http_401` 等是 API 回傳錯誤，`fetch_failed` 是連不上 TypeSafe。這一輪會沿用 session 自己的模型 |
+| `/somm` 指令不見了 | 被其他 plugin 占用，改用 `/sommelier` |
+| 改了程式碼沒有生效 | 正式安裝版依 `plugin.json` 的 `version` 快取。版本號加一後重新安裝，或開發時改用 `--plugin-dir` |
+
+## 隱私與資料
+
+開啟後，sommelier 會把資料送到 TypeSafe 判斷。關閉時不會送出任何東西。
+
+- **什麼時候送**：目前只有 session 的第一個請求會送出（之後逐句判斷時，每個新請求都會送）
+- **送出什麼**：這一句請求（最多 2000 字），以及最近 3 輪對話的文字（每則最多 500 字，只保留結尾）
+- **不送什麼**：檔案內容、工具呼叫與工具輸出、subagent 的請求
+- **本機紀錄**：`/somm log` 的紀錄只存檔位、Jev 的機率、延遲與 cache 讀寫量，不存對話內容
+- **API key**：存在 macOS Keychain（`/plugin configure`），或從環境變數 `TYPESAFE_API_KEY` 讀取
+
+送出前遮蔽密鑰、依專案停用等功能還在規劃中。
+
+## 參與開發
+
+開發環境、離線評測與專案結構見 [CONTRIBUTING.md](CONTRIBUTING.md)。
 
 ## 文件
 
 - [GLOSSARY.md](GLOSSARY.md)：用語定義（檔位、新話題、cache 帳…）
+
+## 授權
+
+[MIT](LICENSE)
