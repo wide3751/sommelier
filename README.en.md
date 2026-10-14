@@ -17,6 +17,22 @@ The way a sommelier picks a wine for each dish, sommelier asks [TypeSafe Jev](ht
 
 **Why not switch models every turn?** Each model keeps its own prompt cache, so switching models means writing the whole conversation into the cache again, which costs usage too. sommelier's rule is: **upgrade any time; downgrade only when it pays off** — on a new task, and only when the switching cost is lower than what it saves.
 
+## Quick start
+
+```bash
+claude plugin marketplace add ~/Projects/sommelier
+claude plugin install sommelier@sommelier
+printf '{"typesafe_api_key":"%s"}' "$TYPESAFE_API_KEY" | claude plugin configure sommelier@sommelier --values-stdin
+```
+
+Restart Claude Code, then:
+
+1. Run `/somm on`
+2. Send a request, for example "Add a timezone parameter to parseDate"
+3. The spinner shows the chosen rung, for example `sonnet·medium L1 · 新話題` (new task)
+
+Run `/somm off` to stop. See [Install](#install) and [Usage](#usage) for details.
+
 ## Requirements
 
 - Claude Code **v2.1.287 or later** (terminal), or **v2.1.286 or later** bundled in the Desktop app (type `/status` in the Code tab to check)

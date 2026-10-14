@@ -17,6 +17,22 @@
 
 **為什麼不每輪都換模型？** 每個模型各有一份 prompt cache，換模型就要把整段對話重新寫入 cache，同樣消耗額度。所以 sommelier 的原則是：**往上升隨時可以；往下降只在划算時才做**，也就是新話題、而且切換成本低於能省下的額度時。
 
+## 快速開始
+
+```bash
+claude plugin marketplace add ~/Projects/sommelier
+claude plugin install sommelier@sommelier
+printf '{"typesafe_api_key":"%s"}' "$TYPESAFE_API_KEY" | claude plugin configure sommelier@sommelier --values-stdin
+```
+
+重新啟動 Claude Code 後：
+
+1. 輸入 `/somm on`
+2. 送出一個請求，例如「幫 parseDate 加上時區參數」
+3. spinner 會顯示選到的檔位，例如 `sonnet·medium L1 · 新話題`
+
+不想用了就輸入 `/somm off`。詳細步驟見[安裝](#安裝)與[使用](#使用)。
+
 ## 需求
 
 - Claude Code **v2.1.287 以上**（終端機），或 Desktop app 內建版本 **v2.1.286 以上**（在 Code tab 輸入 `/status` 查看）
