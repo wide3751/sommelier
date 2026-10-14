@@ -1060,9 +1060,20 @@ test('three Jev failures in a row show one notice, and a success starts the coun
   expect(h.toasts).toHaveLength(2)
 })
 
-test('turns without an API key are not counted as Jev failures', async ($, on) => {
+test('without an API key: one notice, and those turns are not counted as Jev failures', async ($, on) => {
   const h = setup(on, { enabled: true, key: null })
-  for (let i = 1; i <= 4; i++) await turn($, 't' + i, '幫 parseDate 加上時區參數 ' + i)
+  for (let i = 1; i <= 4; i++) {
+    await turn($, 't' + i, '幫 parseDate 加上時區參數 ' + i)
+    await h.clock.advance(10000)
+  }
+  expect(h.toasts).toHaveLength(1)
+  expect(h.toasts[0]).toContain('沒有 TypeSafe API key')
+})
+
+test('notify off shows no missing-key notice', async ($, on) => {
+  const h = setup(on, { enabled: true, key: null })
+  await config($, 'notify off')
+  await turn($, 't1', '幫 parseDate 加上時區參數')
   expect(h.toasts).toHaveLength(0)
 })
 
