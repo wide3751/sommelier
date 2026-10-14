@@ -93,6 +93,27 @@ printf '{"typesafe_api_key":"%s"}' "$TYPESAFE_API_KEY" | claude plugin configure
 
    key 不用寫進指令裡：`read` 會等你貼上，存在這個終端機的 `TYPESAFE_API_KEY` 變數，下一行再把它存進 Keychain，所以 key 不會留在 shell 歷史紀錄。已經在 `~/.zshrc` 設好 `TYPESAFE_API_KEY` 的話，可以跳過 `read` 那行，但要確認目前的 shell 讀得到它（例如新開一個終端機視窗）。也可以只設定環境變數 `TYPESAFE_API_KEY` 當作備援，但從 Dock 開啟的 Desktop app 讀不到 `~/.zshrc`。
 
+### Windows 安裝
+
+步驟 1（加入 marketplace 並安裝）的指令在 PowerShell 一樣能用。本機資料夾的方式把路徑換成 Windows 路徑，例如 `claude plugin marketplace add C:\Projects\sommelier`。
+
+步驟 2 的 `read -rs` 在 PowerShell 沒有，改用下面這段，在 PowerShell 執行（Windows PowerShell 5.1 與 PowerShell 7 都能用）：
+
+```powershell
+# 執行下一行後貼上你的 TypeSafe API key，按 Enter（畫面不會顯示 key）
+$s = Read-Host "TypeSafe API key" -AsSecureString
+$key = [System.Net.NetworkCredential]::new("", $s).Password
+# 交給 Claude Code 存成 plugin 設定
+'{"typesafe_api_key":"' + $key + '"}' | claude plugin configure sommelier@sommelier --values-stdin
+Remove-Variable key, s
+```
+
+Keychain 只有 macOS 才有；Windows 上 key 由 Claude Code 的 plugin 設定保存。想改用環境變數當備援，把 key 永久寫進使用者環境變數（把 `your-api-key` 換成你的 key），再重新開啟終端機和 Claude Code：
+
+```powershell
+[Environment]::SetEnvironmentVariable("TYPESAFE_API_KEY", "your-api-key", "User")
+```
+
 3. 重新啟動 Claude Code，輸入 `/somm status`，確認顯示「API key 已設定」。
 
 ## 使用

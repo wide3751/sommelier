@@ -93,6 +93,27 @@ printf '{"typesafe_api_key":"%s"}' "$TYPESAFE_API_KEY" | claude plugin configure
 
    You don't type the key into the command: `read` waits for you to paste it into this terminal's `TYPESAFE_API_KEY` variable, and the next line stores it in the Keychain, so the key never lands in your shell history. If `TYPESAFE_API_KEY` is already set in `~/.zshrc`, skip the `read` line, but make sure the current shell can see it (for example, open a new terminal window). You can also rely on the `TYPESAFE_API_KEY` environment variable alone as a fallback, but a Desktop app launched from the Dock does not read `~/.zshrc`.
 
+### Installing on Windows
+
+The commands in step 1 (add the marketplace and install) work as-is in PowerShell. For the local-folder option, use a Windows path, for example `claude plugin marketplace add C:\Projects\sommelier`.
+
+`read -rs` in step 2 doesn't exist in PowerShell. Run this instead (works in Windows PowerShell 5.1 and PowerShell 7):
+
+```powershell
+# After running the next line, paste your TypeSafe API key and press Enter (nothing is echoed)
+$s = Read-Host "TypeSafe API key" -AsSecureString
+$key = [System.Net.NetworkCredential]::new("", $s).Password
+# Hand it to Claude Code to store as plugin config
+'{"typesafe_api_key":"' + $key + '"}' | claude plugin configure sommelier@sommelier --values-stdin
+Remove-Variable key, s
+```
+
+The Keychain is macOS-only; on Windows the key is kept in Claude Code's plugin config. To use an environment variable as a fallback instead, set it permanently as a user variable (replace `your-api-key` with your key), then reopen your terminal and Claude Code:
+
+```powershell
+[Environment]::SetEnvironmentVariable("TYPESAFE_API_KEY", "your-api-key", "User")
+```
+
 3. Restart Claude Code, run `/somm status`, and check that it says the API key is set (「API key 已設定」).
 
 ## Usage
