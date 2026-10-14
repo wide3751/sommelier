@@ -182,10 +182,10 @@ async function decideTurn($, e) {
   }
 }
 
-// The status line under the prompt: the model that actually answered the last
-// main step, and the session's own model when sommelier replaced it.
-function statusText(answered, effort, preset) {
-  return '🍷 實際模型 ' + answered + (effort ? '·' + effort : '') + (answered !== preset ? '（預設 ' + preset + '）' : '')
+// The status line under the prompt: the model and effort that actually
+// answered the last main step. The session's own model is shown beside it.
+function statusText(answered, effort) {
+  return '🍷 ' + answered + (effort ? '·' + effort : '')
 }
 
 function spinnerText(decision) {
@@ -324,7 +324,7 @@ export function register(on, options) {
       if (u.model) ledger = { ...ledger, [t.answeredModel]: ledgerEntry(u, await $.clock.now(), e.messageCount) }
     }
     if (t.decision.reason === 'off') $.ui.status(undefined)
-    else $.ui.status(statusText(shortModel(u && u.model ? u.model : out.model), out.effort, shortModel(e.model)))
+    else $.ui.status(statusText(shortModel(u && u.model ? u.model : out.model), out.effort))
     return result
   })
 

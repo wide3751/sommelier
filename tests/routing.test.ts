@@ -228,18 +228,18 @@ test('/somm on and off toggle routing', async ($, on) => {
   expect(h.saved.get('somm:enabled')).toBe(false)
 })
 
-test('the status line shows the model that answered and the session model it replaced', async ($, on) => {
+test('the status line shows the model and effort that answered', async ($, on) => {
   const h = setup(on, { enabled: true })
   await $.turn.start({ text: 'CURRENT REQUEST', turnId: 't1' })
   await step($, 't1', 0)
-  expect(h.statuses.at(-1)).toBe('🍷 實際模型 haiku·medium（預設 opus）')
+  expect(h.statuses.at(-1)).toBe('🍷 haiku·medium')
 })
 
-test('the status line has no preset note when Jev fails and the session model answers', async ($, on) => {
+test('the status line shows the session model when Jev fails on the first turn', async ($, on) => {
   const h = setup(on, { enabled: true, jev: () => ({ status: 429, ok: false, headers: {}, text: '' }) })
   await $.turn.start({ text: 'CURRENT REQUEST', turnId: 't1' })
   await step($, 't1', 0)
-  expect(h.statuses.at(-1)).toBe('🍷 實際模型 opus·medium')
+  expect(h.statuses.at(-1)).toBe('🍷 opus·medium')
 })
 
 test('the status line stays empty while off and clears on /somm off', async ($, on) => {
@@ -287,7 +287,7 @@ test('a downgrade that cannot pay back its cache rewrite is blocked for that sen
   expect(h.fetches.length).toBe(2)
   expect(h.sent.map((s) => s.model)).toEqual([OPUS, OPUS])
   expect(h.toasts.length).toBe(2)
-  expect(h.statuses.at(-1)).toBe('🍷 實際模型 opus·medium')
+  expect(h.statuses.at(-1)).toBe('🍷 opus·medium')
 })
 
 test('the same downgrade goes ahead while the conversation is short', async ($, on) => {
