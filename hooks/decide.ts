@@ -1,6 +1,7 @@
 // Pure routing logic: no mods API calls, so it can be unit tested and reused.
-// Ticket 04 covers the ladder and the cumulative-probability rule only;
-// cache-ledger rules arrive in ticket 05.
+// Every sentence is judged on its own (ADR 0002): upgrades always go ahead,
+// downgrades only on a new topic and only when the cache ledger says the
+// switch pays for itself.
 
 // turn.step rejects aliases ("sonnet" → unrecognized_model), so send full IDs.
 export const MODEL_IDS = { haiku: 'claude-haiku-5-5', sonnet: 'claude-sonnet-5-5', opus: 'claude-opus-5-5' }
@@ -15,10 +16,32 @@ export const DEFAULT_LADDER = [
   { model: 'opus', effort: 'high' },
 ]
 
-// 「平衡」profile (docs/spec.md「參數三層」).
-export const BALANCED = { tOpus: 0.35, tSonnet: 0.35, tNew: 0.7, tRisk: 0.5 }
+// 「平衡」profile (docs/spec.md「參數三層」): Jev thresholds, how many turns a
+// downgrade has to pay itself back in, and the longest conversation haiku takes.
+export const BALANCED = { tOpus: 0.35, tSonnet: 0.35, tNew: 0.7, tRisk: 0.5, payback: 3, haikuMaxCtx: 30000 }
 
 const MODEL_ORDER = ['haiku', 'sonnet', 'opus']
+const EFFORT_ORDER = ['low', 'medium', 'high', 'xhigh', 'max']
+
+// Rungs order by model, then effort: haiku·medium < sonnet·medium < opus·medium < opus·high.
+export function compareRung(a, b) {
+  const m = MODEL_ORDER.indexOf(a.model) - MODEL_ORDER.indexOf(b.model)
+  return m || EFFORT_ORDER.indexOf(a.effort) - EFFORT_ORDER.indexOf(b.effort)
+}
+
+export function sameRung(a, b) {
+  return !!a && !!b && a.model === b.model && a.effort === b.effort
+}
+
+// Short replies and continuation words carry on the current work, so they are
+// not sent to Jev (docs/spec.md「由程式判斷、不送 Jev」).
+export const SHORT_REPLY_CHARS = 8
+export const CONTINUATION_WORDS = ['ok', '好', '嗯', '繼續', 'yes', 'go', 'continue', '對', '可以', '沒問題', '照這樣']
+
+export function isShortReply(text) {
+  const bare = text.toLowerCase().replace(/[\s\p{P}\p{S}]/gu, '')
+  return [...bare].length <= SHORT_REPLY_CHARS || CONTINUATION_WORDS.includes(bare)
+}
 
 function rungAt(level, ladder, base) {
   return ladder[level] ?? base
@@ -29,8 +52,8 @@ function atLeast(rung, floor) {
 }
 
 // answers: the `answers` object of a Jev response.
-// Returns the rung for this turn, the depth level it came from, and whether
-// high_risk raised it (effort high for this turn only).
+// Returns the target rung, the depth level it came from, and whether
+// high_risk raised it to at least base (route adds high effort for this turn only).
 export function targetRung(answers, cfg = {}) {
   const t = { ...BALANCED, ...cfg.thresholds }
   const ladder = cfg.ladder ?? DEFAULT_LADDER
@@ -48,7 +71,7 @@ export function targetRung(answers, cfg = {}) {
 
   let rung = { ...rungAt(level, ladder, base) }
   const risky = (answers.high_risk?.noul ?? 0) >= t.tRisk
-  if (risky) rung = { ...atLeast(rung, base), effort: 'high' }
+  if (risky) rung = atLeast(rung, base)
   return { rung, level, highRisk: risky, newTask: answers.new_task?.noul ?? null }
 }
 
@@ -84,17 +107,48 @@ export function cacheTtl(usage) {
   return undefined
 }
 
-// How many more turns a switch has to pay itself back in, and what a turn
-// costs before this session has turns of its own to average.
-export const EXPECTED_TURNS = 5
+// What a turn costs before this session has turns of its own to average.
 export const DEFAULT_TURN = { output: 2000, fresh: 3000 }
 
-// Whether moving the session from one model to another pays for itself.
-// Caches are model-scoped, so the switch rewrites the whole prompt
-// (contextTokens) into the new model's cache instead of reading it from the
-// old one's. Upgrades always go ahead: they are made for quality, not cost.
+// The cache ledger (docs/spec.md「cache 帳」): per model, when the main
+// conversation last used it, how many tokens that request's cache covered and
+// the message count then. Facts from the API's usage only.
+// The system prompt and tool definitions stay cached across a conversation
+// rewrite (ticket 01 measured about 22k); the API looks back at most 20 cache
+// positions, approximated in messages.
+export const STABLE_PREFIX = 22000
+export const LOOKBACK_MESSAGES = 20
+export const TTL_MS = { '5m': 5 * 60 * 1000, '1h': 60 * 60 * 1000 }
+
+export function ledgerEntry(usage, at, messageCount) {
+  const cachedTokens = (usage.cache_read_input_tokens ?? 0) + (usage.cache_creation_input_tokens ?? 0) + (usage.input_tokens ?? 0)
+  return { lastUsedAt: at, cachedTokens, messageCountAt: messageCount, cold: false }
+}
+
+// /clear, compact and resume rewrite the conversation: every model's cache
+// keeps the stable prefix only.
+export function markCold(ledger) {
+  const out = {}
+  for (const [m, entry] of Object.entries(ledger)) out[m] = { ...entry, cold: true }
+  return out
+}
+
+// Tokens a request on this model would have to write instead of read.
+// Never used or expired → all of it; rewritten conversation or too many
+// messages since → all but the stable prefix; otherwise only what is new.
+export function coldTokens(entry, contextTokens, now, messageCount, ttl = '1h') {
+  if (!entry || now - entry.lastUsedAt > (TTL_MS[ttl] ?? TTL_MS['1h'])) return contextTokens
+  if (entry.cold || messageCount - entry.messageCountAt > LOOKBACK_MESSAGES) return Math.max(0, contextTokens - STABLE_PREFIX)
+  return Math.max(0, contextTokens - entry.cachedTokens)
+}
+
+// Whether moving the conversation from one model to another pays for itself.
+// The switch writes `cold` tokens into the new model's cache instead of reading
+// them; it pays when that extra cost is no more than what the cheaper model
+// saves over `turns` turns. Upgrades always go ahead: they are made for
+// quality, not cost.
 // turn: average output tokens and freshly cached tokens per turn.
-export function switchCost(from, to, contextTokens, turn = DEFAULT_TURN, ttl = '1h', turns = EXPECTED_TURNS) {
+export function switchCost(from, to, contextTokens, cold, turn = DEFAULT_TURN, ttl = '1h', turns = BALANCED.payback) {
   const a = PRICES[from]
   const b = PRICES[to]
   if (!a || !b || from === to || MODEL_ORDER.indexOf(to) > MODEL_ORDER.indexOf(from)) {
@@ -102,11 +156,57 @@ export function switchCost(from, to, contextTokens, turn = DEFAULT_TURN, ttl = '
   }
   const M = 1e6
   const w = CACHE_WRITE_MULT[ttl] ?? CACHE_WRITE_MULT['1h']
-  const extra = (contextTokens * (b.input * w - a.cacheRead)) / M
+  const extra = (cold * (b.input * w - b.cacheRead)) / M
   const perTurn =
     (turn.output * (a.output - b.output) +
       turn.fresh * (a.input - b.input) * w +
       contextTokens * (a.cacheRead - b.cacheRead)) / M
   const savings = perTurn * turns
   return { pays: extra <= savings, extra, savings }
+}
+
+// Haiku is kept to short conversations; a longer one moves to sonnet.
+export function qualityGuard(rung, contextTokens, cfg = BALANCED) {
+  return rung && rung.model === 'haiku' && (contextTokens ?? 0) > cfg.haikuMaxCtx ? { model: 'sonnet', effort: 'medium' } : null
+}
+
+// One sentence's routing (docs/spec.md「分派決策」8–11).
+// s.current: the current rung, or null while the session model is in use;
+// s.session: the session's own rung; s.firstTurn: no judgement yet in this
+// conversation; s.ledger, s.contextTokens, s.now, s.messageCount, s.ttl,
+// s.turn: what the switch cost is estimated from.
+// Returns the rung for this turn (null: leave the request alone), the new
+// current rung and why.
+export function route(answers, s) {
+  const d = targetRung(answers)
+  const from = s.current ?? s.session
+  const newTopic = s.firstTurn || (d.newTask ?? 0) >= BALANCED.tNew
+  const ctx = s.contextTokens ?? 0
+  let next = s.current
+  let reason
+  let cost = null
+  let target = d.rung
+  if (compareRung(target, from) > 0) {
+    reason = 'upgrade'
+    next = target
+  } else if (sameRung(target, from) || !newTopic) {
+    reason = 'hold'
+  } else {
+    if (qualityGuard(target, ctx)) target = qualityGuard(target, ctx)
+    if (compareRung(target, from) >= 0) {
+      reason = 'hold'
+    } else {
+      const cold = coldTokens(s.ledger[target.model], ctx, s.now, s.messageCount, s.ttl)
+      cost = { cold, target: target.model, ...switchCost(from.model, target.model, ctx, cold, s.turn, s.ttl) }
+      reason = cost.pays ? 'downgrade' : 'cost_blocked'
+      if (cost.pays) next = target
+    }
+  }
+  const guard = qualityGuard(next, ctx)
+  if (guard) {
+    reason = 'quality_guard'
+    next = guard
+  }
+  const rung = d.highRisk ? { ...(next ?? from), effort: 'high' } : next
+  return { rung, current: next, reason, newTopic, level: d.level, highRisk: d.highRisk, newTask: d.newTask, cost }
 }

@@ -1,17 +1,18 @@
 // sommelier hooks module.
 //
-// Ticket 04 (walking skeleton): while on (the default), the first prompt you send
-// in a session is judged by Jev and routed to a rung of the ladder; later turns
-// reuse that rung. Jev failing or timing out leaves the request unchanged.
-// Ticket 09 (privacy): consent before the first send, redaction, per-project off.
-// Cache-ledger routing, guards, overrides and the full UI arrive in later tickets.
+// While on (the default), every prompt you send is judged by Jev and routed to a
+// rung of the ladder (ticket 05): upgrades always go ahead, downgrades only on a
+// new topic when the cache ledger says the switch pays. Short replies and Jev
+// failures keep the current rung. Ticket 09 (privacy): consent before the first
+// send, redaction, per-project off. Guards, overrides and the full UI arrive in
+// later tickets.
 //
 // Every mods API call stays in this file (validation forbids passing `$` to an
 // imported function); the routing logic itself lives in decide.ts / jevState.ts /
 // redact.ts.
 
 import { JEV } from './questions.ts'
-import { DEFAULT_TURN, cacheTtl, modelId, shortModel, switchCost, targetRung } from './decide.ts'
+import { DEFAULT_TURN, cacheTtl, isShortReply, ledgerEntry, markCold, modelId, qualityGuard, route, shortModel } from './decide.ts'
 import { buildJevState } from './jevState.ts'
 import { redact } from './redact.ts'
 
@@ -22,7 +23,7 @@ const CONSENT_KEY = 'somm:consent'
 const PROJECT_OFF_PREFIX = 'somm:project-off:'
 const PROMPT_SUMMARY_CHARS = 40
 const CONSENT_QUESTION =
-  'sommelier 會把這一輪的請求與最近 3 輪對話（不含工具輸出，常見密鑰格式已遮蔽）送到 TypeSafe，判斷要用哪個模型。要開始使用嗎？'
+  'sommelier 會把你之後送出的每個請求（短回覆除外）與最近 3 輪對話（不含工具輸出，常見密鑰格式已遮蔽）送到 TypeSafe，判斷要用哪個模型。要開始使用嗎？'
 const CONSENT_AGREE = '同意，開始使用'
 const CONSENT_DECLINE = '不同意，關閉 sommelier'
 const REC_PREFIX = 'somm:rec:'
@@ -31,8 +32,8 @@ const JEV_URL = 'https://api.typesafe.ai/v1/systemone'
 const JEV_TIMEOUT_MS = 1500
 
 const REASON_LABEL = {
-  first_turn: '新話題', continuation: '沿用', no_judgement: '尚未判斷', switch_not_worth: '換模型不划算，沿用',
-  project_off: '專案停用', consent_declined: '未同意送出', consent_unanswered: '尚未確認送出',
+  upgrade: '升級', downgrade: '降級', hold: '沿用', continuation: '沿用', cost_blocked: '換模型不划算，沿用',
+  quality_guard: '對話太長，改用 sonnet', project_off: '專案停用', consent_declined: '未同意送出', consent_unanswered: '尚未確認送出',
 }
 
 let configKey = ''
@@ -45,13 +46,14 @@ const blocked = new Map()
 const prompts = new Map()
 // Per-turn decision and usage totals, filled by turn.step, written at turn.complete.
 const turns = new Map()
-// The first successful judgement of this session; reused by later turns until
-// ticket 05 replaces it with per-sentence routing.
-let sessionRung = null
+// The current rung (目前檔位): what the last main turn ran on, without a
+// one-turn high-risk bump; null while the session model is in use.
+let currentRung = null
+// Main turns judged in this conversation; /clear starts a new one.
+let judgedTurns = 0
+// The cache ledger: per model, the last main request's cache coverage.
+let ledger = {}
 let lastShown = ''
-// Set once a switch was judged not worth its cache rewrite: later turns keep
-// the session model without asking Jev again.
-let heldSession = false
 // Main-turn totals, used to average what a turn costs in this session.
 const seen = { turns: 0, output: 0, fresh: 0 }
 // The cache TTL the last main response wrote, as its usage reported it.
@@ -130,46 +132,54 @@ async function waitCapped($, promise) {
   return result
 }
 
+// What this turn keeps when it is not (or cannot be) judged: the current rung,
+// moved to sonnet once haiku's conversation has grown too long.
+function keep(reason, contextTokens, extra = {}) {
+  const guard = qualityGuard(currentRung, contextTokens)
+  if (guard) {
+    currentRung = guard
+    return { rung: guard, reason: 'quality_guard', ...extra }
+  }
+  return { rung: currentRung, reason, ...extra }
+}
+
 async function decideTurn($, e) {
   const why = blocked.get(e.turnId)
   if (why) return { rung: null, reason: why }
   if (!(await isEnabled($))) return { rung: null, reason: 'off' }
   if (await projectOff($)) return { rung: null, reason: 'project_off' }
+  // contextTokens is absent before the session's first response: nothing is
+  // cached yet, so any switch is free.
+  const contextTokens = (await $.session.usage()).context.tokens ?? 0
   const p = pending.get(e.turnId)
-  if (p) {
-    pending.delete(e.turnId)
-    const j = await waitCapped($, p)
-    if (j.error) return { rung: null, reason: 'jev_failed:' + j.error, jevMs: j.ms ?? null }
-    const d = targetRung(j.answers)
-    // contextTokens is absent before the session's first response: nothing is
-    // cached yet, so any switch is free.
-    const contextTokens = (await $.session.usage()).context.tokens
-    if (contextTokens) {
-      const turn = seen.turns ? { output: seen.output / seen.turns, fresh: seen.fresh / seen.turns } : DEFAULT_TURN
-      const c = switchCost(shortModel(e.model), d.rung.model, contextTokens, turn, lastTtl)
-      if (!c.pays) {
-        heldSession = true
-        $.ui.toast(
-          'sommelier：換到 ' + d.rung.model + ' 要重寫 ' + Math.round(contextTokens / 1000) + 'k tokens 的 cache（約 $' +
-            c.extra.toFixed(2) + '），預估省回 $' + c.savings.toFixed(2) + '，這個 session 沿用 ' + shortModel(e.model),
-        )
-        return {
-          rung: null, reason: 'switch_not_worth', level: d.level, contextTokens, switchCost: c.extra, switchSavings: c.savings,
-          probs: j.answers.depth.probabilities, jevMs: j.ms, servedModel: j.servedModel,
-        }
-      }
-    }
-    // A high-risk effort bump applies to this turn only.
-    sessionRung = d.highRisk ? { model: d.rung.model, effort: 'medium' } : d.rung
-    return {
-      rung: d.rung, reason: 'first_turn', level: d.level, highRisk: d.highRisk, newTask: d.newTask,
-      probs: j.answers.depth.probabilities, riskProb: j.answers.high_risk ? j.answers.high_risk.noul : null,
-      jevMs: j.ms, servedModel: j.servedModel,
-    }
+  if (!p) return keep('continuation', contextTokens)
+  pending.delete(e.turnId)
+  const j = await waitCapped($, p)
+  // A failed judgement keeps the current rung: falling back to the session
+  // model would itself be a switch, and rewrite the cache for nothing.
+  if (j.error) return keep('jev_failed:' + j.error, contextTokens, { jevMs: j.ms ?? null })
+  const r = route(j.answers, {
+    current: currentRung,
+    session: { model: shortModel(e.model), effort: e.effort ?? 'medium' },
+    firstTurn: judgedTurns === 0,
+    ledger, contextTokens, now: await $.clock.now(), messageCount: e.messageCount, ttl: lastTtl,
+    turn: seen.turns ? { output: seen.output / seen.turns, fresh: seen.fresh / seen.turns } : DEFAULT_TURN,
+  })
+  judgedTurns += 1
+  currentRung = r.current
+  if (r.reason === 'cost_blocked') {
+    $.ui.toast(
+      'sommelier：換到 ' + r.cost.target + ' 要重寫 ' + Math.round(r.cost.cold / 1000) + 'k tokens 的 cache（約 $' +
+        r.cost.extra.toFixed(2) + '），預估省回 $' + r.cost.savings.toFixed(2) + '，這一句沿用 ' + (currentRung ? currentRung.model : shortModel(e.model)),
+    )
   }
-  if (sessionRung) return { rung: sessionRung, reason: 'continuation' }
-  if (heldSession) return { rung: null, reason: 'switch_not_worth' }
-  return { rung: null, reason: 'no_judgement' }
+  return {
+    rung: r.rung, reason: r.reason, level: r.level, newTopic: r.newTopic, highRisk: r.highRisk, newTask: r.newTask,
+    contextTokens, coldTokens: r.cost ? r.cost.cold : undefined, switchCost: r.cost ? r.cost.extra : undefined,
+    switchSavings: r.cost ? r.cost.savings : undefined,
+    probs: j.answers.depth.probabilities, riskProb: j.answers.high_risk ? j.answers.high_risk.noul : null,
+    jevMs: j.ms, servedModel: j.servedModel,
+  }
 }
 
 // The status line under the prompt: the model that actually answered the last
@@ -182,7 +192,8 @@ function spinnerText(decision) {
   if (decision.reason === 'off') return ''
   if (!decision.rung) return 'session · ' + (decision.reason.startsWith('jev_failed') ? 'Jev 失敗' : REASON_LABEL[decision.reason] ?? decision.reason)
   const r = decision.rung
-  return r.model + '·' + r.effort + (decision.level !== undefined ? ' L' + decision.level : '') + ' · ' + (REASON_LABEL[decision.reason] ?? decision.reason)
+  const label = decision.reason.startsWith('jev_failed') ? 'Jev 失敗，沿用' : REASON_LABEL[decision.reason] ?? decision.reason
+  return r.model + '·' + r.effort + (decision.level !== undefined ? ' L' + decision.level : '') + ' · ' + (decision.newTopic ? '新話題，' : '') + label
 }
 
 async function writeRecord($, rec) {
@@ -217,7 +228,7 @@ async function runCommand($, e) {
   }
   if (sub === 'on') {
     await $.store.set(ENABLED_KEY, true)
-    return { text: 'sommelier 已開啟：接下來你送出的第一個請求會交給 Jev 判斷。' }
+    return { text: 'sommelier 已開啟：接下來你送出的每個請求都會交給 Jev 判斷（短回覆除外）。' }
   }
   if (sub === 'off') {
     await $.store.set(ENABLED_KEY, false)
@@ -233,7 +244,7 @@ async function runCommand($, e) {
   if (!sub || sub === 'status') {
     const on = await isEnabled($)
     const key = (await apiKey($)) ? '已設定' : '未設定'
-    const rung = sessionRung ? sessionRung.model + '·' + sessionRung.effort : '（尚未判斷）'
+    const rung = currentRung ? currentRung.model + '·' + currentRung.effort : judgedTurns ? 'session 模型' : '（尚未判斷）'
     const project = (await projectOff($)) ? '｜此專案停用' : ''
     return { text: 'sommelier ' + (on ? '開啟' : '關閉') + project + '｜API key ' + key + '｜本 session 檔位 ' + rung }
   }
@@ -264,12 +275,23 @@ export function register(on, options) {
     return next(e)
   })
 
+  // /clear starts a new conversation; compact and resume rewrite it. Either
+  // way the cached conversation is gone and only the stable prefix survives.
+  on('classic.SessionStart', async ($, e, next) => {
+    if (e.source !== 'startup') ledger = markCold(ledger)
+    if (e.source === 'clear') {
+      currentRung = null
+      judgedTurns = 0
+    }
+    return next(e)
+  })
+
   on('command.run', { command: COMMAND }, async ($, e) => runCommand($, e))
   on('command.run', { command: FALLBACK_COMMAND }, async ($, e) => runCommand($, e))
 
   on('turn.start', async ($, e, next) => {
     prompts.set(e.turnId, e.text)
-    if (e.text !== '' && !sessionRung && !heldSession && (await isEnabled($)) && !(await projectOff($))) {
+    if (e.text !== '' && !isShortReply(e.text) && (await isEnabled($)) && !(await projectOff($))) {
       // Without a key nothing would be sent, so there is nothing to consent to.
       const consent = (await apiKey($)) ? await askConsent($) : 'agreed'
       if (consent === 'agreed') pending.set(e.turnId, judge($, e.text, await $.session.messages()))
@@ -299,6 +321,7 @@ export function register(on, options) {
       t.cacheWrite += u.cache_creation_input_tokens ?? 0
       t.answeredModel = shortModel(u.model)
       lastTtl = cacheTtl(u) ?? lastTtl
+      if (u.model) ledger = { ...ledger, [t.answeredModel]: ledgerEntry(u, await $.clock.now(), e.messageCount) }
     }
     if (t.decision.reason === 'off') $.ui.status(undefined)
     else $.ui.status(statusText(shortModel(u && u.model ? u.model : out.model), out.effort, shortModel(e.model)))
