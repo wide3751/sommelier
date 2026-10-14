@@ -72,7 +72,12 @@ claude plugin marketplace add wide3751/sommelier
 claude plugin install sommelier@sommelier
 ```
 
-   To update to a new version later, run `claude plugin marketplace update sommelier` and reinstall.
+   To update to a new version later, update the marketplace, then the plugin, and restart Claude Code (running `install` again on an installed plugin does not upgrade it):
+
+```bash
+claude plugin marketplace update sommelier
+claude plugin update sommelier@sommelier
+```
 
    **Option B: from a local folder** — for when you have cloned the project and want to install your own changes:
 
@@ -219,7 +224,7 @@ opus·high · 回答 opus · upgrade P=0.02/0.08/0.20/0.70 jev 410ms cache read 
 | `/somm status` says the API key is not set (「API key 未設定」) | Redo step 2 of Install. If you rely on the environment variable only, make sure the shell that starts Claude Code can see `TYPESAFE_API_KEY`; a Desktop app launched from the Dock does not read `~/.zshrc` |
 | The spinner shows `Jev 失敗` (Jev failed) | Check `/somm log` for the reason: `no_key` means no key, `timeout` means it took over 1.5 s, `http_401` and similar are API errors, `fetch_failed` means TypeSafe could not be reached. That turn keeps the current model; if the session's first request fails, it uses the session's own model |
 | `/somm` is missing | Another plugin took it; use `/sommelier` |
-| Code changes have no effect | Installed copies are cached by the `version` in `plugin.json`. Bump the version and reinstall, or use `--plugin-dir` while developing |
+| Code changes have no effect | Installed copies are cached by the `version` in `plugin.json`. Bump the version, run `claude plugin update sommelier@sommelier` and restart, or use `--plugin-dir` while developing |
 
 ## Privacy and data
 

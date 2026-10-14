@@ -8,7 +8,7 @@ claude plugin validate ~/Projects/sommelier
 cd ~/Projects/sommelier && claude plugin test
 ```
 
-正式安裝的版本會依 `plugin.json` 的 `version` 快取一份副本。改了程式碼後要先把版本號加一，再重新安裝，改動才會生效。開發時建議用 `--plugin-dir`。
+正式安裝的版本會依 `plugin.json` 的 `version` 快取一份副本。改了程式碼後要先把版本號加一，再執行 `claude plugin update sommelier@sommelier` 並重開，改動才會生效。開發時建議用 `--plugin-dir`。
 
 **版本號規則**（`.claude-plugin/plugin.json`）：
 

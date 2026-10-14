@@ -72,7 +72,12 @@ claude plugin marketplace add wide3751/sommelier
 claude plugin install sommelier@sommelier
 ```
 
-   之後要更新到新版本，執行 `claude plugin marketplace update sommelier` 再重新安裝。
+   之後要更新到新版本，先更新 marketplace，再更新插件，然後重開 Claude Code（已經裝過時再跑 `install` 不會升級）：
+
+```bash
+claude plugin marketplace update sommelier
+claude plugin update sommelier@sommelier
+```
 
    **方式 B：從本機資料夾安裝**，適合已經 clone 專案、想裝自己改過的版本：
 
@@ -216,7 +221,7 @@ opus·high · 回答 opus · upgrade P=0.02/0.08/0.20/0.70 jev 410ms cache read 
 | `/somm status` 顯示「API key 未設定」 | 照「安裝」第 2 步重新設定。只靠環境變數的話，確認啟動 Claude Code 的 shell 讀得到 `TYPESAFE_API_KEY`；從 Dock 開啟的 Desktop app 讀不到 `~/.zshrc` |
 | spinner 顯示「Jev 失敗」 | 用 `/somm log` 看原因：`no_key` 是沒有 key，`timeout` 是超過 1.5 秒，`http_401` 等是 API 回傳錯誤，`fetch_failed` 是連不上 TypeSafe。這一輪沿用目前的模型；session 第一句就失敗時用 session 自己的模型 |
 | `/somm` 指令不見了 | 被其他 plugin 占用，改用 `/sommelier` |
-| 改了程式碼沒有生效 | 正式安裝版依 `plugin.json` 的 `version` 快取。版本號加一後重新安裝，或開發時改用 `--plugin-dir` |
+| 改了程式碼沒有生效 | 正式安裝版依 `plugin.json` 的 `version` 快取。版本號加一後執行 `claude plugin update sommelier@sommelier` 並重開，或開發時改用 `--plugin-dir` |
 
 ## 隱私與資料
 
