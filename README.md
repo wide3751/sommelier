@@ -99,7 +99,7 @@ printf '{"typesafe_api_key":"%s"}' "$TYPESAFE_API_KEY" | claude plugin configure
 | `/somm status` | 顯示開關、此專案是否停用、API key 是否設定、本 session 的檔位 |
 | `/somm log [n]` | 最近 n 筆分派紀錄：選了哪個檔位、Jev 的機率、cache 讀寫量 |
 
-開啟後，prompt 下方的狀態列會顯示實際回答的模型與 effort，例如 `🍷 haiku·medium`。旁邊 Claude Code 自己顯示的是 session 的模型。
+開啟後，prompt 下方的狀態列會顯示實際回答的模型、版本與 effort，例如 `🍷 haiku 5.5·medium`。旁邊 Claude Code 自己顯示的是 session 的模型。
 
 `/somm` 如果被其他 plugin 占用，會自動改用 `/sommelier`。
 

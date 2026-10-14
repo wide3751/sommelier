@@ -12,7 +12,7 @@
 // redact.ts.
 
 import { JEV } from './questions.ts'
-import { DEFAULT_TURN, cacheTtl, isShortReply, ledgerEntry, markCold, modelId, qualityGuard, route, shortModel } from './decide.ts'
+import { DEFAULT_TURN, cacheTtl, isShortReply, ledgerEntry, markCold, modelId, modelLabel, qualityGuard, route, shortModel } from './decide.ts'
 import { buildJevState } from './jevState.ts'
 import { redact } from './redact.ts'
 
@@ -182,8 +182,8 @@ async function decideTurn($, e) {
   }
 }
 
-// The status line under the prompt: the model and effort that actually
-// answered the last main step. The session's own model is shown beside it.
+// The status line under the prompt: the model, with its version, and effort
+// that actually answered the last main step. The session's own model is shown beside it.
 function statusText(answered, effort) {
   return '🍷 ' + answered + (effort ? '·' + effort : '')
 }
@@ -328,7 +328,7 @@ export function register(on, options) {
       if (u.model) ledger = { ...ledger, [t.answeredModel]: ledgerEntry(u, await $.clock.now(), e.messageCount) }
     }
     if (t.decision.reason === 'off') $.ui.status(undefined)
-    else $.ui.status(statusText(shortModel(u && u.model ? u.model : out.model), out.effort))
+    else $.ui.status(statusText(modelLabel(u && u.model ? u.model : out.model), out.effort))
     return result
   })
 

@@ -99,7 +99,7 @@ On by default after install; there is no need to run `/somm on`. Before a reques
 | `/somm status` | Show on/off, whether this project is turned off, whether the API key is set, and this session's rung |
 | `/somm log [n]` | The last n routing records: chosen rung, Jev's probabilities, cache reads and writes |
 
-When on, the status line under the prompt shows the model and effort that actually answered, for example `🍷 haiku·medium`. The model Claude Code shows next to it is the session's own.
+When on, the status line under the prompt shows the model, its version and the effort that actually answered, for example `🍷 haiku 5.5·medium`. The model Claude Code shows next to it is the session's own.
 
 If another plugin already uses `/somm`, the command falls back to `/sommelier`.
 
