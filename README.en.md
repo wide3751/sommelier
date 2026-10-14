@@ -144,12 +144,12 @@ sommelier 開啟｜API key 已設定｜本 session 檔位 sonnet·medium
 # sommelier on | API key set | this session's rung sonnet·medium
 ```
 
-`/somm log 3` — P is Jev's probability for L0/L1/L2/L3; a turn where judging failed shows `session` and keeps the original model:
+`/somm log 3` — P is Jev's probability for L0/L1/L2/L3; a turn where judging failed shows `session` and keeps the original model; "回答" is the model that actually answered, and the brackets hold the first six characters of the session id:
 
 ```
-sonnet·medium · downgrade P=0.05/0.90/0.05/0.00 jev 820ms cache read 0 write 18342
-sonnet·medium · continuation cache read 18342 write 1204
-opus·high · upgrade P=0.02/0.08/0.20/0.70 jev 410ms cache read 0 write 21530
+sonnet·medium · 回答 sonnet · downgrade P=0.05/0.90/0.05/0.00 jev 820ms cache read 0 write 18342 [a1b2c3]
+sonnet·medium · 回答 sonnet · continuation cache read 18342 write 1204 [a1b2c3]
+opus·high · 回答 opus · upgrade P=0.02/0.08/0.20/0.70 jev 410ms cache read 0 write 21530 [a1b2c3]
 ```
 
 ## Limitations

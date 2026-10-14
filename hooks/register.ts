@@ -217,7 +217,9 @@ function formatRecord(r) {
   const rung = r.rung ? r.rung.model + '·' + r.rung.effort : 'session'
   const probs = r.probs ? ' P=' + [0, 1, 2, 3].map((i) => (r.probs[String(i)] ?? 0).toFixed(2)).join('/') : ''
   const cache = ' cache read ' + r.cacheRead + ' write ' + r.cacheWrite
-  return rung + ' · ' + r.reason + probs + (r.jevMs != null ? ' jev ' + Math.round(r.jevMs) + 'ms' : '') + cache
+  const answered = r.answeredModel ? ' · 回答 ' + r.answeredModel : ''
+  const session = r.session ? ' [' + String(r.session).slice(0, 6) + ']' : ''
+  return rung + answered + ' · ' + r.reason + probs + (r.jevMs != null ? ' jev ' + Math.round(r.jevMs) + 'ms' : '') + cache + session
 }
 
 async function runCommand($, e) {
