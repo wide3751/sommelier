@@ -14,7 +14,7 @@ function jevBody(probs: number[], newTask = 0.9, highRisk = 0.05) {
 }
 
 // Common stubs. Returns handles the tests read.
-function setup(on, opts: { enabled?: boolean; key?: string | null; jev?: (body: any) => any; messages?: any[] } = {}) {
+function setup(on, opts: { enabled?: boolean; key?: string | null; jev?: (body: any) => any; messages?: any[]; contextTokens?: number } = {}) {
   const clock = mock.clock(on)
   const saved = new Map<string, unknown>()
   if (opts.enabled) saved.set('somm:enabled', true)
@@ -30,6 +30,7 @@ function setup(on, opts: { enabled?: boolean; key?: string | null; jev?: (body: 
   })
   mock.env(on, opts.key === null ? {} : { TYPESAFE_API_KEY: opts.key ?? 'test-key' })
   on('session.id', () => ({ value: 'sess1' }))
+  on('session.usage', () => ({ value: { startedAt: 0, context: { tokens: opts.contextTokens, window: 1000000 }, rateLimits: [] } }))
   on('session.messages', () => ({
     value: opts.messages ?? [
       { role: 'user', text: '登入偶爾 401，幫我查原因', toolUses: [] },
@@ -221,25 +222,47 @@ test('the status line stays empty while off and clears on /somm off', async ($, 
   expect(h.statuses.at(-1)).toBe(undefined)
 })
 
-test('a long conversation keeps the session model without calling Jev, and says so once', async ($, on) => {
-  const longResult = { tool_use_id: 'x', text: 'x'.repeat(100000), isError: false }
-  const h = setup(on, {
-    enabled: true,
-    messages: [
-      { role: 'user', text: '先看一下這個檔案', toolUses: [] },
-      { role: 'user', text: '', toolUses: [], toolResults: [longResult] },
-      { role: 'assistant', text: '看完了。', toolUses: [] },
-      { role: 'user', text: 'CURRENT', toolUses: [] },
-    ],
-  })
+const deep = () => ({ status: 200, ok: true, headers: {}, text: jevBody([0.02, 0.08, 0.2, 0.7]) })
+const clear = () => ({ status: 200, ok: true, headers: {}, text: jevBody([0.05, 0.85, 0.1, 0]) })
+
+test('a downgrade that cannot pay back its cache rewrite keeps the session model for the rest of the session', async ($, on) => {
+  const h = setup(on, { enabled: true, contextTokens: 120000, jev: clear })
   await $.turn.start({ text: 'CURRENT', turnId: 't1' })
   await step($, 't1', 0)
   await complete($, 't1')
+  const first = records(h.saved)[0]
+  expect(first.reason).toBe('switch_not_worth')
+  expect(first.switchCost).toBeGreaterThan(first.switchSavings)
   await $.turn.start({ text: 'again', turnId: 't2' })
   await step($, 't2', 0)
-  expect(h.fetches.length).toBe(0)
+  await complete($, 't2')
+  expect(h.fetches.length).toBe(1)
   expect(h.sent.map((s) => s.model)).toEqual([OPUS, OPUS])
-  expect(records(h.saved)[0].reason).toBe('long_conversation')
+  // The mocked clock does not move, so the second record replaces the first.
+  const rec = records(h.saved)
+  expect(rec.at(-1).reason).toBe('switch_not_worth')
   expect(h.toasts.length).toBe(1)
   expect(h.statuses.at(-1)).toBe('🍷 實際模型 opus·medium')
+})
+
+test('the same downgrade goes ahead while the conversation is short', async ($, on) => {
+  const h = setup(on, { enabled: true, contextTokens: 20000, jev: clear })
+  await $.turn.start({ text: 'CURRENT', turnId: 't1' })
+  await step($, 't1', 0)
+  expect(h.sent[0].model).toBe('claude-sonnet-5-5')
+})
+
+test('dropping from opus to haiku pays even in a long conversation', async ($, on) => {
+  const h = setup(on, { enabled: true, contextTokens: 300000 })
+  await $.turn.start({ text: 'CURRENT', turnId: 't1' })
+  await step($, 't1', 0)
+  expect(h.sent[0].model).toBe('claude-haiku-5-5')
+})
+
+test('an upgrade goes ahead however long the conversation is', async ($, on) => {
+  const h = setup(on, { enabled: true, contextTokens: 300000, jev: deep })
+  await $.turn.start({ text: 'CURRENT', turnId: 't1' })
+  await step($, 't1', 0, { model: 'claude-haiku-5-5' })
+  expect(h.sent[0].model).toBe(OPUS)
+  expect(h.toasts.length).toBe(0)
 })

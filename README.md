@@ -123,7 +123,7 @@ session · jev_failed:timeout cache read 0 write 15873
 
 - **只判斷第一句**：開啟後只有 session 的第一個請求交給 Jev 判斷，之後每一輪都沿用同一個檔位。換話題不會重新判斷。
 - **手動 `/model` 和 `/clear`**：手動切換模型、清除或恢復對話之後，sommelier 的行為還沒驗證完，結果可能不如預期。需要固定模型時，建議先 `/somm off`。
-- **長對話不換模型**：聊了一陣子才 `/somm on` 時，如果對話已經超過約 2 萬 tokens，sommelier 不會換模型，因為換模型要把整段對話重寫進新模型的 cache。開新 session 或 `/clear` 後才會判斷。
+- **不划算就不降級**：換模型要把整段對話重寫進新模型的 cache。往下降時，sommelier 會用 Claude Code 回報的 context 大小（`$.session.usage().context.tokens`）和回應裡的 cache TTL，比較「重寫成本」和「預估 5 輪能省回的錢」，省不回來就沿用原模型，並在這個 session 停止判斷。往上升不受影響。價格用的是官方定價，寫在 `hooks/decide.ts`。
 - **Jev 判斷要時間**：每次判斷最多等 1.5 秒，第一個請求的回應會稍微慢一點。
 - **Desktop app**：Code tab 不能用 `/plugin configure` 輸入 API key，要改在終端機設定（見「安裝」）。
 

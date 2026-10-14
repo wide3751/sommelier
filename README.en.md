@@ -126,7 +126,7 @@ session · jev_failed:timeout cache read 0 write 15873
 
 - **Only the first prompt is judged**: once on, only the session's first request goes to Jev; every later turn keeps the same rung. Changing topics does not trigger a new judgment.
 - **Manual `/model` and `/clear`**: how sommelier behaves after you switch models by hand, or clear or resume a conversation, is still being verified and may not be what you expect. If you need a fixed model, run `/somm off` first.
-- **No switch on long conversations**: if you turn sommelier on mid-session and the conversation is already over about 20k tokens, it keeps the session's model, because switching would rewrite the whole conversation into the new model's cache. Judging resumes in a new session or after `/clear`.
+- **No downgrade that doesn't pay**: switching models rewrites the whole conversation into the new model's cache. Before a downgrade, sommelier weighs that rewrite — sized from Claude Code's own context figure (`$.session.usage().context.tokens`) and the cache TTL in the response usage — against what about 5 turns on the cheaper model would save. If it doesn't pay, it keeps the session model and stops judging for that session. Upgrades are unaffected. Prices are the list prices in `hooks/decide.ts`.
 - **Judging takes time**: each judgment waits up to 1.5 s, so the first request responds a little more slowly.
 - **Desktop app**: the Code tab cannot take the API key through `/plugin configure`; set it from a terminal instead (see Install).
 

@@ -9,7 +9,7 @@
 // imported function); the routing logic itself lives in decide.ts / jevState.ts.
 
 import { JEV } from './questions.ts'
-import { LONG_CONVERSATION_TOKENS, estimateTokens, modelId, shortModel, targetRung } from './decide.ts'
+import { DEFAULT_TURN, cacheTtl, modelId, shortModel, switchCost, targetRung } from './decide.ts'
 import { buildJevState } from './jevState.ts'
 
 const COMMAND = 'somm'
@@ -20,7 +20,7 @@ const REC_CAP = 500
 const JEV_URL = 'https://api.typesafe.ai/v1/systemone'
 const JEV_TIMEOUT_MS = 1500
 
-const REASON_LABEL = { first_turn: '新話題', continuation: '沿用', no_judgement: '尚未判斷', long_conversation: '對話已長，不換模型' }
+const REASON_LABEL = { first_turn: '新話題', continuation: '沿用', no_judgement: '尚未判斷', switch_not_worth: '換模型不划算，沿用' }
 
 let configKey = ''
 // Jev requests started at turn.start, keyed by turnId so a queued prompt never
@@ -32,8 +32,13 @@ const turns = new Map()
 // ticket 05 replaces it with per-sentence routing.
 let sessionRung = null
 let lastShown = ''
-// The long-conversation toast is shown once per session.
-let warnedLong = false
+// Set once a switch was judged not worth its cache rewrite: later turns keep
+// the session model without asking Jev again.
+let heldSession = false
+// Main-turn totals, used to average what a turn costs in this session.
+const seen = { turns: 0, output: 0, fresh: 0 }
+// The cache TTL the last main response wrote, as its usage reported it.
+let lastTtl = '1h'
 
 async function isEnabled($) {
   return (await $.store.get(ENABLED_KEY)) === true
@@ -88,9 +93,26 @@ async function decideTurn($, e) {
   if (p) {
     pending.delete(e.turnId)
     const j = await waitCapped($, p)
-    if (j.skip) return { rung: null, reason: j.skip }
     if (j.error) return { rung: null, reason: 'jev_failed:' + j.error, jevMs: j.ms ?? null }
     const d = targetRung(j.answers)
+    // contextTokens is absent before the session's first response: nothing is
+    // cached yet, so any switch is free.
+    const contextTokens = (await $.session.usage()).context.tokens
+    if (contextTokens) {
+      const turn = seen.turns ? { output: seen.output / seen.turns, fresh: seen.fresh / seen.turns } : DEFAULT_TURN
+      const c = switchCost(shortModel(e.model), d.rung.model, contextTokens, turn, lastTtl)
+      if (!c.pays) {
+        heldSession = true
+        $.ui.toast(
+          'sommelier：換到 ' + d.rung.model + ' 要重寫 ' + Math.round(contextTokens / 1000) + 'k tokens 的 cache（約 $' +
+            c.extra.toFixed(2) + '），預估省回 $' + c.savings.toFixed(2) + '，這個 session 沿用 ' + shortModel(e.model),
+        )
+        return {
+          rung: null, reason: 'switch_not_worth', level: d.level, contextTokens, switchCost: c.extra, switchSavings: c.savings,
+          probs: j.answers.depth.probabilities, jevMs: j.ms, servedModel: j.servedModel,
+        }
+      }
+    }
     // A high-risk effort bump applies to this turn only.
     sessionRung = d.highRisk ? { model: d.rung.model, effort: 'medium' } : d.rung
     return {
@@ -100,6 +122,7 @@ async function decideTurn($, e) {
     }
   }
   if (sessionRung) return { rung: sessionRung, reason: 'continuation' }
+  if (heldSession) return { rung: null, reason: 'switch_not_worth' }
   return { rung: null, reason: 'no_judgement' }
 }
 
@@ -192,17 +215,8 @@ export function register(on, options) {
   on('command.run', { command: FALLBACK_COMMAND }, async ($, e) => runCommand($, e))
 
   on('turn.start', async ($, e, next) => {
-    if (e.text !== '' && !sessionRung && (await isEnabled($))) {
-      const messages = await $.session.messages()
-      if (estimateTokens(messages) > LONG_CONVERSATION_TOKENS) {
-        pending.set(e.turnId, Promise.resolve({ skip: 'long_conversation' }))
-        if (!warnedLong) {
-          warnedLong = true
-          $.ui.toast('sommelier：對話已長，換模型要重寫整段 cache，這個 session 先不換。開新 session 或 /clear 後再判斷')
-        }
-      } else {
-        pending.set(e.turnId, judge($, e.text, messages))
-      }
+    if (e.text !== '' && !sessionRung && !heldSession && (await isEnabled($))) {
+      pending.set(e.turnId, judge($, e.text, await $.session.messages()))
     }
     return next(e)
   })
@@ -227,6 +241,7 @@ export function register(on, options) {
       t.cacheRead += u.cache_read_input_tokens ?? 0
       t.cacheWrite += u.cache_creation_input_tokens ?? 0
       t.answeredModel = shortModel(u.model)
+      lastTtl = cacheTtl(u) ?? lastTtl
     }
     if (t.decision.reason === 'off') $.ui.status(undefined)
     else $.ui.status(statusText(shortModel(u && u.model ? u.model : out.model), out.effort, shortModel(e.model)))
@@ -237,6 +252,11 @@ export function register(on, options) {
     pending.delete(e.turnId)
     const t = turns.get(e.turnId)
     turns.delete(e.turnId)
+    if (!e.agentId && t) {
+      seen.turns += 1
+      seen.output += t.output
+      seen.fresh += t.input + t.cacheWrite
+    }
     if (!e.agentId && t && t.decision.reason !== 'off') {
       const { decision, ...usage } = t
       await writeRecord($, { turnId: e.turnId, ...decision, ...usage })
