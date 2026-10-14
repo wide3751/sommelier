@@ -1,0 +1,7 @@
+# redact 測試刻意使用的假密鑰（假 AWS key、假 RSA 私鑰），只放行 tests/routing.test.ts
+a1b2788fa890dacec08d69dbab6950da55e84468:tests/routing.test.ts:private-key:315
+a1b2788fa890dacec08d69dbab6950da55e84468:tests/routing.test.ts:aws-access-token:314
+6f65e9a4fa4c964e48ea826378a7f95ca5069c5f:tests/routing.test.ts:aws-access-token:366
+tests/routing.test.ts:aws-access-token:457
+tests/routing.test.ts:aws-access-token:596
+tests/routing.test.ts:private-key:458
