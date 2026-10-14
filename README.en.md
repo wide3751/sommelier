@@ -140,6 +140,9 @@ On by default after install; there is no need to run `/somm on`. Before a reques
 | `allowed` | haiku-opus | The models sommelier may pick, e.g. `sonnet-opus` never uses haiku. A `somm:` override is not limited |
 | `spinner` | on | Whether the spinner shows this turn's routing while Claude works |
 | `notify` | important | Important notices: an override or downgrade that rewrites the cache, Jev failing 3 times in a row, no API key (shown once). At most one per turn; several within 10 seconds show only the newest once the 10 seconds are up. `off` shows none |
+| `skills` | on | Skill hints on or off. `off` stops skill hints only; model routing goes on |
+| `skills-allow` | (all) | Only these skills are candidates, comma separated, named as `/skills` lists them, such as `mattpocock-skills:tdd,grilling`; `none` clears it |
+| `skills-exclude` | (none) | These skills are never hinted, written the same way; a skill in both lists is excluded |
 
 When on, the status line under the prompt shows the model, its version and the effort that actually answered, for example `🍷 haiku 5.5·medium`. The model Claude Code shows next to it is the session's own.
 
@@ -154,6 +157,8 @@ If another plugin already uses `/somm`, the command falls back to `/sommelier`.
 - **Downgrade**: only on a new topic, and only when the expected saving beats the cost of rewriting the cache; otherwise that request keeps the current model
 - **Keep**: on the same topic when the judgment is lower, on short replies ("ok", "continue"; not sent to Jev), and when Jev times out or errors, the current model stays
 - **No haiku for long conversations**: a conversation over 30k tokens is not moved down to haiku, and one already on haiku moves to sonnet once it grows past that
+
+**Skill hints**: alongside the model, Jev judges whether the request needs a skill and which one fits best. When it is confident enough ("needs a skill" ≥ 0.30 and the top skill ≥ 0.5), sommelier adds a note for Claude beside the prompt saying the request may suit that skill (it may be wrong). It is only a suggestion: Claude ignores it when it does not fit, and it never changes the model. Candidates are the skills in this session that Claude can call itself and that have a description, narrowed with `skills-allow` and `skills-exclude`. The same skill is hinted once per topic, again only after a new topic or `/clear`. A hint shows as `💡tdd` in the spinner, and `/somm log` records whether Claude took it up. With skill hints on, a prompt waits for Jev (at most 1.5 seconds) after you send it, so the hint can go with it.
 
 **sommelier leaves the model unchanged when:**
 - it is off, or turned off for the current project
@@ -221,10 +226,10 @@ opus·high · 回答 opus · upgrade P=0.02/0.08/0.20/0.70 jev 410ms cache read 
 sommelier is on by default after install, and while on it sends data to TypeSafe for judging. It asks for your consent before the first send; once you run `/somm off`, nothing is sent.
 
 - **When**: every new request; short replies (8 characters or fewer once spaces and punctuation are stripped, such as "ok" or "continue") are not sent
-- **What is sent**: the current request (up to 2,000 characters) and the text of the last 3 turns (up to 500 characters each, keeping the end)
+- **What is sent**: the current request (up to 2,000 characters) and the text of the last 3 turns (up to 500 characters each, keeping the end); with skill hints on, also the names and descriptions of the candidate skills (up to 300 characters each). If you agreed before skill hints existed, you are asked once more before skill data is first sent; declining turns skill hints off only
 - **Masked before sending**: common secret formats become `[REDACTED]`: `sk-`, `AKIA`, `ghp_`, `xoxb-`/`xoxp-`, `AIza`, `Bearer`, `password=`, JWTs, private key blocks, and hex strings of 32 or more characters
 - **What is not sent**: file contents, tool calls and tool output, subagent requests, and projects turned off with `/somm off --project`
-- **Local records**: `/somm log` records store the rung, Jev's probabilities, latency, cache reads and writes, and the first 40 characters of the prompt (masked); turned-off projects store no prompt
+- **Local records**: `/somm log` records store the rung, Jev's probabilities, latency, cache reads and writes, the hinted skill and whether it was taken up, and the first 40 characters of the prompt (masked); turned-off projects store no prompt
 - **API key**: stored in the macOS Keychain (`/plugin configure`), or read from the `TYPESAFE_API_KEY` environment variable
 
 ## Contributing

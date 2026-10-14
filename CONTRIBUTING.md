@@ -23,7 +23,7 @@ cd ~/Projects/sommelier && claude plugin test
 TYPESAFE_API_KEY=... python3 eval/run_eval.py --tag 名稱
 ```
 
-題目定義只有一份，放在 [hooks/questions.ts](hooks/questions.ts)，mod 和評測腳本共用。題庫在 [eval/dataset.jsonl](eval/dataset.jsonl)，報告輸出到 `eval/reports/`。
+題目定義只有一份，放在 [hooks/questions.ts](hooks/questions.ts)，mod 和評測腳本共用。題庫在 [eval/dataset.jsonl](eval/dataset.jsonl)，skill 提示的題庫在 [eval/skill_dataset.jsonl](eval/skill_dataset.jsonl)，候選 skill 固定用 [eval/skill_candidates.json](eval/skill_candidates.json)，報告輸出到 `eval/reports/`。加上 `--no-skills` 只送三題。
 
 ## 專案結構
 
@@ -34,7 +34,7 @@ hooks/
   decide.ts      分派邏輯：階梯表、累積機率、cache 帳與升降級規則（純函式）
   jevState.ts    組成送給 Jev 的對話內容（只取文字、先遮蔽再截斷、保留結尾）
   redact.ts      送出前遮蔽常見密鑰格式（純函式，規則只增不減）
-  questions.ts   送給 Jev 的三題定義
+  questions.ts   送給 Jev 的題目定義：三題分派，加上 skill 提示的兩題
 tests/           claude plugin test 的自動化測試
 eval/            離線評測題庫、腳本與報告
 GLOSSARY.md      領域用語

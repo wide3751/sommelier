@@ -1,0 +1,14 @@
+{
+  "tdd": "Test-driven development. Use when the user wants to build features or fix bugs test-first, mentions \"red-green-refactor\", or wants integration tests.",
+  "grilling": "Grill the user relentlessly about a plan, decision, or idea. Use when the user wants to stress-test their thinking, or uses any 'grill' trigger phrases.",
+  "diagnosing-bugs": "Diagnosis loop for hard bugs and performance regressions. Use when the user says \"diagnose\"/\"debug this\", or reports something broken/throwing/failing/slow.",
+  "code-review": "Review the changes since a fixed point (commit, branch, tag, or merge-base) along two axes — Standards and Spec. Use when the user wants to review a branch, a PR, work-in-progress changes, or asks to \"review since X\".",
+  "codebase-design": "Shared vocabulary for designing deep modules. Use when the user wants to design or improve a module's interface, find deepening opportunities, decide where a seam goes, make code more testable.",
+  "domain-modeling": "Build and sharpen a project's domain model. Use when the user wants to pin down domain terminology or a ubiquitous language, or record an architectural decision.",
+  "resolving-merge-conflicts": "Resolve git merge or rebase conflicts.",
+  "security-review": "Complete a security review of the pending changes on the current branch.",
+  "frontend-design": "Guidance for distinctive, intentional visual design when building new UI or reshaping an existing one.",
+  "pptx": "Use this skill any time a .pptx file is involved in any way — creating slide decks, pitch decks, or presentations; reading, editing or combining them.",
+  "xlsx": "Create, read and edit spreadsheets (.xlsx, .csv) with formulas, formatting and charts.",
+  "writing-for-agents": "Writing documents for agents. Use when creating or editing skills, or modifying AGENTS.md or CLAUDE.md."
+}
