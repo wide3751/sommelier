@@ -6,3 +6,6 @@ node_modules/
 # Exported routing records may contain prompt excerpts
 exports/
 somm-proto-log.jsonl
+
+# Design docs (spec, plan, ADRs) are kept local only
+docs/

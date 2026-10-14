@@ -15,8 +15,6 @@ A Claude Code plugin (mod) that picks the model and effort for each task, the wa
 
 Upgrades happen any time and stick until the task ends. Downgrades happen only when the prompt cache would be rebuilt anyway (session start, after `/clear` or `/compact`, after resume, after idling past the cache TTL) or while the conversation is still short.
 
-> Status: in development. Today the first prompt of a session is judged by Jev and later turns reuse that rung; per-sentence routing with the cache ledger is next. See [docs/spec.md](docs/spec.md) and [docs/plan.png](docs/plan.png).
-
 ## Requirements
 
 - Claude Code v2.1.287 or later (mods support)
@@ -44,4 +42,4 @@ claude plugin validate ~/Projects/sommelier
 cd ~/Projects/sommelier && claude plugin test
 ```
 
-Docs: [spec](docs/spec.md) · [glossary](GLOSSARY.md) · [ADRs](docs/adr/)
+Glossary: [GLOSSARY.md](GLOSSARY.md)

@@ -15,21 +15,7 @@
 | L2 要先調查或取捨 | `base`（opus · medium） | 「登入偶爾 401，找出原因」 |
 | L3 沒有明確邊界、需要長時間推演 | opus · high | 「設計多租戶權限架構」 |
 
-**為什麼不每輪都換模型？** 每個模型各有一份 prompt cache，換模型就要把整段對話重新寫入 cache，同樣消耗額度。所以 sommelier 的原則是：**往上升隨時可以；往下降只在划算時才做**，也就是新話題、而且切換成本低於能省下的額度時。設計細節見 [docs/spec.md](docs/spec.md) 與 [docs/plan.png](docs/plan.png)。
-
-## 目前進度
-
-> 開發中。目前能用的是「session 第一句話由 Jev 判斷，之後各輪沿用」的最小版本。
-
-| | 功能 | 狀態 |
-|---|---|---|
-| ✅ | 平台驗證：改模型與 effort、cache 量測 | 完成（ticket 01） |
-| ✅ | 離線評測：40 題標註題庫，嚴重錯誤率 0 | 完成（ticket 03） |
-| ✅ | 第一輪依 Jev 分派、失敗或逾時就不改 | 完成（ticket 04） |
-| ⏳ | 狀態事件驗證：手動 `/model`、`/clear`、resume | 進行中（ticket 02） |
-| 🔜 | 逐句判斷與 cache 帳、覆寫 `somm:`、隱私保護、設定、pane | 規劃中（ticket 05–13） |
-
-全部 ticket 在 [.scratch/sommelier/issues/](.scratch/sommelier/issues/)。
+**為什麼不每輪都換模型？** 每個模型各有一份 prompt cache，換模型就要把整段對話重新寫入 cache，同樣消耗額度。所以 sommelier 的原則是：**往上升隨時可以；往下降只在划算時才做**，也就是新話題、而且切換成本低於能省下的額度時。
 
 ## 需求
 
@@ -106,13 +92,9 @@ hooks/
   questions.ts   送給 Jev 的三題定義
 tests/           claude plugin test 的自動化測試
 eval/            離線評測題庫、腳本與報告
-docs/            spec、計劃圖、ADR
 GLOSSARY.md      領域用語
 ```
 
 ## 文件
 
-- [spec](docs/spec.md)：完整設計
 - [GLOSSARY.md](GLOSSARY.md)：用語定義（檔位、新話題、cache 帳…）
-- [ADR 0001](docs/adr/0001-route-via-mod-turn-step.md)：為什麼用 mod 的 `turn.step` 換模型
-- [ADR 0002](docs/adr/0002-per-sentence-routing-with-cache-ledger.md)：為什麼改成逐句判斷加上 cache 帳
