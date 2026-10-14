@@ -24,8 +24,13 @@ The way a sommelier picks a wine for each dish, sommelier asks [TypeSafe Jev](ht
 ```bash
 claude plugin marketplace add wide3751/sommelier
 claude plugin install sommelier@sommelier
+# After running the next line, paste your TypeSafe API key and press Enter (the key is not shown)
+read -rs TYPESAFE_API_KEY
+# Store the key in the macOS Keychain
 printf '{"typesafe_api_key":"%s"}' "$TYPESAFE_API_KEY" | claude plugin configure sommelier@sommelier --values-stdin
 ```
+
+Create the API key in the [TypeSafe console](https://console.typesafe.ai/keys). If `TYPESAFE_API_KEY` is already set in `~/.zshrc`, skip the `read` line.
 
 Restart Claude Code and sommelier is on, with nothing else to set up:
 
@@ -80,10 +85,13 @@ claude plugin install sommelier@sommelier
 2. Set your TypeSafe API key (stored in the macOS Keychain). In the terminal you can run `/plugin configure sommelier@sommelier` inside a session. The Desktop app's Code tab does not show an input box, so run this in a terminal instead:
 
 ```bash
+# After running the next line, paste your TypeSafe API key and press Enter (the key is not shown)
+read -rs TYPESAFE_API_KEY
+# Store the key in the macOS Keychain
 printf '{"typesafe_api_key":"%s"}' "$TYPESAFE_API_KEY" | claude plugin configure sommelier@sommelier --values-stdin
 ```
 
-   Make sure the current shell can see `TYPESAFE_API_KEY` first (for example, open a new terminal window). You can also rely on the `TYPESAFE_API_KEY` environment variable alone as a fallback, but a Desktop app launched from the Dock does not read `~/.zshrc`.
+   You don't type the key into the command: `read` waits for you to paste it into this terminal's `TYPESAFE_API_KEY` variable, and the next line stores it in the Keychain, so the key never lands in your shell history. If `TYPESAFE_API_KEY` is already set in `~/.zshrc`, skip the `read` line, but make sure the current shell can see it (for example, open a new terminal window). You can also rely on the `TYPESAFE_API_KEY` environment variable alone as a fallback, but a Desktop app launched from the Dock does not read `~/.zshrc`.
 
 3. Restart Claude Code, run `/somm status`, and check that it says the API key is set (「API key 已設定」).
 
