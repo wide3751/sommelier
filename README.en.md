@@ -30,7 +30,7 @@ printf '{"typesafe_api_key":"%s"}' "$TYPESAFE_API_KEY" | claude plugin configure
 Restart Claude Code and sommelier is on, with nothing else to set up:
 
 1. Send a request, for example "Add a timezone parameter to parseDate"
-2. The spinner shows the chosen rung, for example `sonnet·medium L1 · 新話題` (new task)
+2. The spinner shows the chosen rung, for example `sonnet·medium L1 · 新話題，降級` (new topic, downgrade)
 
 Run `/somm off` to stop. See [Install](#install) and [Usage](#usage) for details.
 
@@ -93,7 +93,7 @@ On by default after install; there is no need to run `/somm on`. Before a reques
 
 | Command | Description |
 |---|---|
-| `/somm on` | Turn back on. The next prompt you send is judged by Jev |
+| `/somm on` | Turn back on. Every prompt you send from then on is judged by Jev (short replies excepted) |
 | `/somm off` | Turn off and keep the session's own model and effort |
 | `/somm off --project` | Turn off for the current project only, so nothing from it is sent; `/somm on --project` undoes it |
 | `/somm status` | Show on/off, whether this project is turned off, whether the API key is set, and this session's rung |
@@ -103,26 +103,38 @@ When on, the status line under the prompt shows the model that actually answered
 
 If another plugin already uses `/somm`, the command falls back to `/sommelier`.
 
+**How each request is decided:**
+- **Upgrade**: whenever a request needs a stronger model or higher effort, it moves up
+- **Downgrade**: only on a new topic, and only when the expected saving beats the cost of rewriting the cache; otherwise that request keeps the current model
+- **Keep**: on the same topic when the judgment is lower, on short replies ("ok", "continue"; not sent to Jev), and when Jev times out or errors, the current model stays
+- **No haiku for long conversations**: a conversation over 30k tokens is not moved down to haiku, and one already on haiku moves to sonnet once it grows past that
+
 **sommelier leaves the model unchanged when:**
 - it is off, or turned off for the current project
 - you did not agree to the consent question before the first send
-- Jev times out (1.5 s), returns an error, or no API key is set
+- Jev fails on the session's first request, or no API key is set (a later failure keeps the current model)
 - the request comes from a subagent
 
 ### Examples
 
 The plugin's messages are currently in Chinese; translations are in the comments.
 
-Turn it on and send "Add a timezone parameter to parseDate". Jev judges it L1 and the spinner shows:
+Turn it on and send "Add a timezone parameter to parseDate". Jev judges it L1, the session's opus moves down to sonnet, and the spinner shows:
 
 ```
-sonnet·medium L1 · 新話題        # new task
+sonnet·medium L1 · 新話題，降級   # new topic, downgrade
 ```
 
-Every later turn keeps the same rung:
+Reply "ok": short replies are not sent to Jev and keep the same rung:
 
 ```
-sonnet·medium · 沿用             # continued
+sonnet·medium · 沿用             # kept
+```
+
+Then ask "Design a multi-tenant permission architecture". Jev judges it L3 and it moves up:
+
+```
+opus·high L3 · 升級              # upgrade
 ```
 
 `/somm status`:
@@ -135,17 +147,17 @@ sommelier 開啟｜API key 已設定｜本 session 檔位 sonnet·medium
 `/somm log 3` — P is Jev's probability for L0/L1/L2/L3; a turn where judging failed shows `session` and keeps the original model:
 
 ```
-sonnet·medium · first_turn P=0.05/0.90/0.05/0.00 jev 820ms cache read 0 write 18342
+sonnet·medium · downgrade P=0.05/0.90/0.05/0.00 jev 820ms cache read 0 write 18342
 sonnet·medium · continuation cache read 18342 write 1204
-session · jev_failed:timeout cache read 0 write 15873
+opus·high · upgrade P=0.02/0.08/0.20/0.70 jev 410ms cache read 0 write 21530
 ```
 
 ## Limitations
 
-- **Only the first prompt is judged**: once on, only the session's first request goes to Jev; every later turn keeps the same rung. Changing topics does not trigger a new judgment.
 - **Manual `/model` and `/clear`**: how sommelier behaves after you switch models by hand, or clear or resume a conversation, is still being verified and may not be what you expect. If you need a fixed model, run `/somm off` first.
-- **No downgrade that doesn't pay**: switching models rewrites the whole conversation into the new model's cache. Before a downgrade, sommelier weighs that rewrite — sized from Claude Code's own context figure (`$.session.usage().context.tokens`) and the cache TTL in the response usage — against what about 5 turns on the cheaper model would save. If it doesn't pay, it keeps the session model and stops judging for that session. Upgrades are unaffected. Prices are the list prices in `hooks/decide.ts`.
-- **Judging takes time**: each judgment waits up to 1.5 s, so the first request responds a little more slowly.
+- **No downgrade that doesn't pay**: each model has its own cache, so a switch writes the conversation into the new model's cache. sommelier keeps track of how far each model's cache reaches: a model never used, or idle past the cache TTL, needs the whole conversation rewritten; going back to a model used moments ago only adds what is new; after `/clear`, compact or resume only the system prompt is still cached. Before a downgrade it weighs that rewrite against what about 3 turns on the cheaper model would save. If it doesn't pay, that request keeps the current model and the next new topic is weighed again. Upgrades are unaffected. Prices are the list prices in `hooks/decide.ts`.
+- **The model picker shows the session model**: sommelier changes each request it sends, not the session's own model, so `/model` and the Desktop model picker keep showing the original. The status line's `🍷 實際模型` shows which model actually answered.
+- **Judging takes time**: each request's judgment waits up to 1.5 s (offline eval p95 about 0.4 s); short replies are not sent and do not wait.
 - **Desktop app**: the Code tab cannot take the API key through `/plugin configure`; set it from a terminal instead (see Install).
 
 ## Troubleshooting
@@ -153,7 +165,7 @@ session · jev_failed:timeout cache read 0 write 15873
 | Symptom | What to do |
 |---|---|
 | `/somm status` says the API key is not set (「API key 未設定」) | Redo step 2 of Install. If you rely on the environment variable only, make sure the shell that starts Claude Code can see `TYPESAFE_API_KEY`; a Desktop app launched from the Dock does not read `~/.zshrc` |
-| The spinner shows `session · Jev 失敗` (Jev failed) | Check `/somm log` for the reason: `no_key` means no key, `timeout` means it took over 1.5 s, `http_401` and similar are API errors, `fetch_failed` means TypeSafe could not be reached. That turn keeps the session's own model |
+| The spinner shows `Jev 失敗` (Jev failed) | Check `/somm log` for the reason: `no_key` means no key, `timeout` means it took over 1.5 s, `http_401` and similar are API errors, `fetch_failed` means TypeSafe could not be reached. That turn keeps the current model; if the session's first request fails, it uses the session's own model |
 | `/somm` is missing | Another plugin took it; use `/sommelier` |
 | Code changes have no effect | Installed copies are cached by the `version` in `plugin.json`. Bump the version and reinstall, or use `--plugin-dir` while developing |
 
@@ -161,7 +173,7 @@ session · jev_failed:timeout cache read 0 write 15873
 
 sommelier is on by default after install, and while on it sends data to TypeSafe for judging. It asks for your consent before the first send; once you run `/somm off`, nothing is sent.
 
-- **When**: currently only the session's first request (once per-prompt routing lands, every new request)
+- **When**: every new request; short replies (8 characters or fewer once spaces and punctuation are stripped, such as "ok" or "continue") are not sent
 - **What is sent**: the current request (up to 2,000 characters) and the text of the last 3 turns (up to 500 characters each, keeping the end)
 - **Masked before sending**: common secret formats become `[REDACTED]`: `sk-`, `AKIA`, `ghp_`, `xoxb-`/`xoxp-`, `AIza`, `Bearer`, `password=`, JWTs, private key blocks, and hex strings of 32 or more characters
 - **What is not sent**: file contents, tool calls and tool output, subagent requests, and projects turned off with `/somm off --project`

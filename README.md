@@ -30,7 +30,7 @@ printf '{"typesafe_api_key":"%s"}' "$TYPESAFE_API_KEY" | claude plugin configure
 重新啟動 Claude Code 就會自動開啟，不用另外設定：
 
 1. 送出一個請求，例如「幫 parseDate 加上時區參數」
-2. spinner 會顯示選到的檔位，例如 `sonnet·medium L1 · 新話題`
+2. spinner 會顯示選到的檔位，例如 `sonnet·medium L1 · 新話題，降級`
 
 不想用了就輸入 `/somm off`。詳細步驟見[安裝](#安裝)與[使用](#使用)。
 
@@ -93,7 +93,7 @@ printf '{"typesafe_api_key":"%s"}' "$TYPESAFE_API_KEY" | claude plugin configure
 
 | 指令 | 說明 |
 |---|---|
-| `/somm on` | 重新開啟。接下來你送出的第一句話會交給 Jev 判斷 |
+| `/somm on` | 重新開啟。之後你送出的每個請求都會交給 Jev 判斷（短回覆除外） |
 | `/somm off` | 關閉，沿用 session 自己的模型與 effort |
 | `/somm off --project` | 只在目前的專案停用，這個專案的內容不會送出；`/somm on --project` 恢復 |
 | `/somm status` | 顯示開關、此專案是否停用、API key 是否設定、本 session 的檔位 |
@@ -103,24 +103,36 @@ printf '{"typesafe_api_key":"%s"}' "$TYPESAFE_API_KEY" | claude plugin configure
 
 `/somm` 如果被其他 plugin 占用，會自動改用 `/sommelier`。
 
+**每個請求怎麼決定：**
+- **升級**：判斷需要較強的模型或較高的 effort 時，隨時往上換
+- **降級**：只在新話題、而且預估省下的額度大於重寫 cache 的成本時才往下換；否則這一句沿用目前的模型
+- **沿用**：同一個話題判斷較低時、短回覆（例如「好」「繼續」，不送 Jev）、Jev 逾時或回傳錯誤時，維持目前的模型
+- **對話太長不用 haiku**：對話超過 30k tokens 時不會降到 haiku；已經在 haiku 上的對話長到超過這個長度，會改用 sonnet
+
 **以下情況 sommelier 不會改動模型：**
 - 關閉時，或目前專案已停用
 - 第一次送出前的確認沒有同意
-- Jev 逾時（1.5 秒）、回傳錯誤，或沒有設定 API key
+- session 的第一句 Jev 就失敗，或沒有設定 API key（之後的句子失敗則沿用目前的模型）
 - subagent 的請求
 
 ### 範例
 
-開啟後送出「幫 parseDate 加上時區參數」，Jev 判斷為 L1，spinner 會顯示：
+開啟後送出「幫 parseDate 加上時區參數」，Jev 判斷為 L1，從 session 的 opus 降到 sonnet，spinner 會顯示：
 
 ```
-sonnet·medium L1 · 新話題
+sonnet·medium L1 · 新話題，降級
 ```
 
-之後的每一輪沿用同一個檔位：
+接著回「好」，短回覆不送 Jev，沿用同一個檔位：
 
 ```
 sonnet·medium · 沿用
+```
+
+再要求「設計多租戶權限架構」，Jev 判斷為 L3，升級：
+
+```
+opus·high L3 · 升級
 ```
 
 `/somm status`：
@@ -129,20 +141,20 @@ sonnet·medium · 沿用
 sommelier 開啟｜API key 已設定｜本 session 檔位 sonnet·medium
 ```
 
-`/somm log 3`：P 是 Jev 判斷為 L0／L1／L2／L3 的機率；判斷失敗的那一輪會顯示 `session`，沿用原本的模型：
+`/somm log 3`：P 是 Jev 判斷為 L0／L1／L2／L3 的機率；`session` 表示這一輪用 session 自己的模型：
 
 ```
-sonnet·medium · first_turn P=0.05/0.90/0.05/0.00 jev 820ms cache read 0 write 18342
+sonnet·medium · downgrade P=0.05/0.90/0.05/0.00 jev 820ms cache read 0 write 18342
 sonnet·medium · continuation cache read 18342 write 1204
-session · jev_failed:timeout cache read 0 write 15873
+opus·high · upgrade P=0.02/0.08/0.20/0.70 jev 410ms cache read 0 write 21530
 ```
 
 ## 限制
 
-- **只判斷第一句**：開啟後只有 session 的第一個請求交給 Jev 判斷，之後每一輪都沿用同一個檔位。換話題不會重新判斷。
 - **手動 `/model` 和 `/clear`**：手動切換模型、清除或恢復對話之後，sommelier 的行為還沒驗證完，結果可能不如預期。需要固定模型時，建議先 `/somm off`。
-- **不划算就不降級**：換模型要把整段對話重寫進新模型的 cache。往下降時，sommelier 會用 Claude Code 回報的 context 大小（`$.session.usage().context.tokens`）和回應裡的 cache TTL，比較「重寫成本」和「預估 5 輪能省回的錢」，省不回來就沿用原模型，並在這個 session 停止判斷。往上升不受影響。價格用的是官方定價，寫在 `hooks/decide.ts`。
-- **Jev 判斷要時間**：每次判斷最多等 1.5 秒，第一個請求的回應會稍微慢一點。
+- **不划算就不降級**：每個模型各有一份 cache，換模型要把對話寫進新模型的 cache。sommelier 會記下每個模型的 cache 涵蓋到哪裡：切到從沒用過、或閒置超過 cache 時效的模型要整段重寫；切回剛用過的模型只補差額；`/clear`、compact、resume 之後只剩系統提示還在 cache 裡。往下降時比較「重寫成本」和「預估 3 輪能省回的錢」，省不回來就這一句沿用原模型，下一個新話題再重新評估。往上升不受影響。價格用的是官方定價，寫在 `hooks/decide.ts`。
+- **模型選單顯示的是 session 模型**：sommelier 改的是每個送出的請求，不改 session 本身的模型，所以 `/model` 和 Desktop 的模型選單一直顯示原本的模型。實際回答的模型看狀態列的 `🍷 實際模型`。
+- **Jev 判斷要時間**：每個請求的判斷最多等 1.5 秒（離線評測 p95 約 0.4 秒），短回覆不送 Jev、不用等。
 - **Desktop app**：Code tab 不能用 `/plugin configure` 輸入 API key，要改在終端機設定（見「安裝」）。
 
 ## 疑難排解
@@ -150,7 +162,7 @@ session · jev_failed:timeout cache read 0 write 15873
 | 症狀 | 做法 |
 |---|---|
 | `/somm status` 顯示「API key 未設定」 | 照「安裝」第 2 步重新設定。只靠環境變數的話，確認啟動 Claude Code 的 shell 讀得到 `TYPESAFE_API_KEY`；從 Dock 開啟的 Desktop app 讀不到 `~/.zshrc` |
-| spinner 顯示「session · Jev 失敗」 | 用 `/somm log` 看原因：`no_key` 是沒有 key，`timeout` 是超過 1.5 秒，`http_401` 等是 API 回傳錯誤，`fetch_failed` 是連不上 TypeSafe。這一輪會沿用 session 自己的模型 |
+| spinner 顯示「Jev 失敗」 | 用 `/somm log` 看原因：`no_key` 是沒有 key，`timeout` 是超過 1.5 秒，`http_401` 等是 API 回傳錯誤，`fetch_failed` 是連不上 TypeSafe。這一輪沿用目前的模型；session 第一句就失敗時用 session 自己的模型 |
 | `/somm` 指令不見了 | 被其他 plugin 占用，改用 `/sommelier` |
 | 改了程式碼沒有生效 | 正式安裝版依 `plugin.json` 的 `version` 快取。版本號加一後重新安裝，或開發時改用 `--plugin-dir` |
 
@@ -158,7 +170,7 @@ session · jev_failed:timeout cache read 0 write 15873
 
 sommelier 安裝後預設開啟，開啟時會把資料送到 TypeSafe 判斷。第一次送出前會先詢問你是否同意；用 `/somm off` 關閉後就不會送出任何東西。
 
-- **什麼時候送**：目前只有 session 的第一個請求會送出（之後逐句判斷時，每個新請求都會送）
+- **什麼時候送**：每個新請求都會送出；短回覆（去掉空白標點後 8 字以內，例如「好」「繼續」）不送
 - **送出什麼**：這一句請求（最多 2000 字），以及最近 3 輪對話的文字（每則最多 500 字，只保留結尾）
 - **送出前遮蔽**：常見的密鑰格式會換成 `[REDACTED]`，包括 `sk-`、`AKIA`、`ghp_`、`xoxb-`／`xoxp-`、`AIza`、`Bearer`、`password=`、JWT、私鑰區塊，以及 32 字以上的十六進位字串
 - **不送什麼**：檔案內容、工具呼叫與工具輸出、subagent 的請求，以及用 `/somm off --project` 停用的專案
