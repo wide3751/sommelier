@@ -257,14 +257,14 @@ test('the status line shows the model and effort that answered', async ($, on) =
   const h = setup(on, { enabled: true })
   await $.turn.start({ text: 'CURRENT REQUEST', turnId: 't1' })
   await step($, 't1', 0)
-  expect(h.statuses.at(-1)).toBe('🍷 haiku·medium')
+  expect(h.statuses.at(-1)).toBe('🍷 haiku 5.5·medium')
 })
 
 test('the status line shows the session model when Jev fails on the first turn', async ($, on) => {
   const h = setup(on, { enabled: true, jev: () => ({ status: 429, ok: false, headers: {}, text: '' }) })
   await $.turn.start({ text: 'CURRENT REQUEST', turnId: 't1' })
   await step($, 't1', 0)
-  expect(h.statuses.at(-1)).toBe('🍷 opus·medium')
+  expect(h.statuses.at(-1)).toBe('🍷 opus 5.5·medium')
 })
 
 test('the status line stays empty while off and clears on /somm off', async ($, on) => {
@@ -312,7 +312,7 @@ test('a downgrade that cannot pay back its cache rewrite is blocked for that sen
   expect(h.fetches.length).toBe(2)
   expect(h.sent.map((s) => s.model)).toEqual([OPUS, OPUS])
   expect(h.toasts.length).toBe(2)
-  expect(h.statuses.at(-1)).toBe('🍷 opus·medium')
+  expect(h.statuses.at(-1)).toBe('🍷 opus 5.5·medium')
 })
 
 test('the same downgrade goes ahead while the conversation is short', async ($, on) => {
@@ -611,4 +611,11 @@ test('/somm log shows the model that answered and the session it came from', asy
   const log = await $.command.run({ command: 'somm', args: 'log 1' })
   expect(log.text).toContain('haiku·medium · 回答 haiku')
   expect(log.text).toMatch(/\[sess1\]$/)
+})
+
+test('the status line shows the version of a dated model id', async ($, on) => {
+  const h = setup(on, { enabled: true, usage: { model: 'claude-sonnet-5-5-20261001' } as any })
+  await $.turn.start({ text: 'CURRENT REQUEST', turnId: 't1' })
+  await step($, 't1', 0)
+  expect(h.statuses.at(-1)).toBe('🍷 sonnet 5.5·medium')
 })

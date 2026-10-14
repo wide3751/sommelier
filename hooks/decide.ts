@@ -84,6 +84,14 @@ export function shortModel(id) {
   return id
 }
 
+// The model with its version for display: claude-haiku-5-5 (or one with a
+// date suffix) reads as "haiku 5.5". An id of another shape falls back to shortModel.
+export function modelLabel(id) {
+  const m = /^claude-([a-z]+)-(\d+)(?:-(\d{1,2}))?(?:-\d{8})?$/.exec(String(id))
+  if (!m) return shortModel(id)
+  return m[1] + ' ' + m[2] + (m[3] ? '.' + m[3] : '')
+}
+
 // List prices in USD per million tokens; the mods API exposes no price table.
 // Reads are billed per model (Opus 5.5 at 0.05x input, others 0.1x). Haiku's
 // prices are for prompts up to 100K tokens.
