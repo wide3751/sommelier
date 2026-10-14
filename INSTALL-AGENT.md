@@ -18,11 +18,23 @@ Run these in order. If any step fails, stop and report the error to the user:
    [ -n "$TYPESAFE_API_KEY" ] && echo set || echo missing
    ```
 
+   On Windows (PowerShell):
+
+   ```powershell
+   if ($env:TYPESAFE_API_KEY) { "set" } else { "missing" }
+   ```
+
    If it prints `missing`, stop and ask the user to set `TYPESAFE_API_KEY` themselves, or to run `/plugin configure sommelier@sommelier` in a terminal session. Do not ask the user for the key, and do not write it to any file.
-4. Save the key to the plugin config (stored in the macOS Keychain):
+4. Save the key to the plugin config (stored in the macOS Keychain on macOS):
 
    ```bash
    printf '{"typesafe_api_key":"%s"}' "$TYPESAFE_API_KEY" | claude plugin configure sommelier@sommelier --values-stdin
+   ```
+
+   On Windows (PowerShell):
+
+   ```powershell
+   '{"typesafe_api_key":"' + $env:TYPESAFE_API_KEY + '"}' | claude plugin configure sommelier@sommelier --values-stdin
    ```
 
 5. Run `claude plugin list` and check that `sommelier@sommelier` shows Status `enabled`.
