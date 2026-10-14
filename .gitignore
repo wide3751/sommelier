@@ -8,4 +8,5 @@ exports/
 somm-proto-log.jsonl
 
 # Design docs (spec, plan, ADRs) are kept local only
-docs/
+docs/*
+!docs/agents/
