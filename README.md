@@ -49,37 +49,7 @@ printf '{"typesafe_api_key":"%s"}' "$TYPESAFE_API_KEY" | claude plugin configure
 
 設定好之後，把這句話貼給 Claude Code 或其他 coding agent：
 
-> 照 https://github.com/wide3751/sommelier 的 README「讓 AI agent 幫你安裝」章節安裝 sommelier
-
-### 給 agent 的步驟
-
-請依序執行，任何一步失敗就停下來，把錯誤訊息告訴使用者：
-
-1. 執行 `claude --version`，確認版本 ≥ 2.1.287。版本太舊就停下來，請使用者先更新 Claude Code。
-2. 安裝 plugin：
-
-   ```bash
-   claude plugin marketplace add wide3751/sommelier
-   claude plugin install sommelier@sommelier
-   ```
-
-3. 確認 API key 存在，**不要印出 key 的內容**：
-
-   ```bash
-   [ -n "$TYPESAFE_API_KEY" ] && echo set || echo missing
-   ```
-
-   如果是 `missing`，就停下來，請使用者自己設定 `TYPESAFE_API_KEY`，或請他在終端機執行 `/plugin configure sommelier@sommelier`。不要向使用者索取 key，也不要把 key 寫進任何檔案。
-4. 把 key 寫入 plugin 設定（存進 macOS Keychain）：
-
-   ```bash
-   printf '{"typesafe_api_key":"%s"}' "$TYPESAFE_API_KEY" | claude plugin configure sommelier@sommelier --values-stdin
-   ```
-
-5. 執行 `claude plugin list`，確認 `sommelier@sommelier` 的 Status 是 `enabled`。
-6. 以下步驟必須由使用者在 Claude Code 裡操作，agent 從 shell 做不到。請把這兩步告訴使用者：
-   1. 重新啟動 Claude Code，sommelier 會自動開啟
-   2. 輸入 `/somm status`，確認顯示「開啟」與「API key 已設定」
+> 照 https://github.com/wide3751/sommelier/blob/main/INSTALL-AGENT.md 安裝 sommelier
 
 ## 需求
 
