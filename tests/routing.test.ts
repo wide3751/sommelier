@@ -937,3 +937,107 @@ test('a manual model still wins over an override', async ($, on) => {
   expect(h.sent[0].model).toBe(SONNET)
   expect(records(h.saved)[0].reason).toBe('manual')
 })
+
+// ticket 10：/somm config 日常設定
+
+const config = async ($, args = '') => (await $.command.run({ command: 'somm', args: ('config ' + args).trim() })).text
+const L2 = [0.05, 0.2, 0.7, 0.05]
+
+test('/somm config lists the settings with their defaults', async ($, on) => {
+  setup(on)
+  const text = await config($)
+  for (const line of ['enabled on', 'base opus·medium', 'profile balanced（平衡）', 'allowed haiku-opus', 'spinner on', 'notify important']) {
+    expect(text).toContain(line)
+  }
+})
+
+test('a value that is not allowed is refused and nothing is stored', async ($, on) => {
+  const h = setup(on)
+  for (const args of ['base gpt', 'base opus:low', 'profile fast', 'allowed opus-haiku', 'spinner full', 'notify switches', 'colour red']) {
+    expect(await config($, args)).not.toContain('已設定')
+  }
+  expect(h.saved.has('somm:config')).toBe(false)
+})
+
+test('a quality profile sends a borderline request to sonnet, and applies from the next turn', async ($, on) => {
+  const h = setup(on, { enabled: true, jev: () => ok([0.78, 0.2, 0.02, 0]) })
+  await turn($, 't1', '看一下 package.json 的 version')
+  expect(await config($, 'profile 品質優先')).toContain('profile quality')
+  await turn($, 't2', '另外把 README 的標題改一下')
+  expect(rungs(h)).toEqual(['haiku/medium', 'sonnet/medium'])
+})
+
+test('a saver profile needs more confidence before opus', async ($, on) => {
+  const h = setup(on, { enabled: true, jev: () => ok([0.1, 0.5, 0.4, 0]) })
+  await config($, 'profile saver')
+  await turn($, 't1', '登入偶爾 401，找出原因')
+  expect(rungs(h)).toEqual(['sonnet/medium'])
+})
+
+test('base sets what L2 runs on', async ($, on) => {
+  const h = setup(on, { enabled: true, jev: () => ok(L2) })
+  await config($, 'base opus:high')
+  await turn($, 't1', '登入偶爾 401，找出原因')
+  expect(rungs(h)).toEqual(['opus/high'])
+})
+
+test('a sonnet base is also the floor for high risk', async ($, on) => {
+  const h = setup(on, { enabled: true, jev: sequence(ok(L2), ok(L0, 0.9, 0.9)) })
+  await config($, 'base sonnet')
+  await turn($, 't1', '登入偶爾 401，找出原因')
+  await turn($, 't2', '把 users 表的 email 欄位刪掉')
+  expect(rungs(h)).toEqual(['sonnet/medium', 'sonnet/high'])
+})
+
+test('allowed keeps every rung inside the range', async ($, on) => {
+  const h = setup(on, { enabled: true, jev: sequence(ok(L0), ok(L3)) })
+  await config($, 'allowed sonnet-opus')
+  await turn($, 't1', '看一下 package.json 的 version')
+  await config($, 'base sonnet')
+  await config($, 'allowed haiku-sonnet')
+  await turn($, 't2', '設計多租戶權限架構')
+  expect(rungs(h)).toEqual(['sonnet/medium', 'sonnet/high'])
+})
+
+test('allowed and base must agree', async ($, on) => {
+  setup(on)
+  expect(await config($, 'allowed haiku-sonnet')).toContain('請先改 base')
+  await config($, 'allowed sonnet-opus')
+  expect(await config($, 'base haiku')).toContain('allowed')
+})
+
+test('notify off silences the cache rewrite notice', async ($, on) => {
+  let ctx = 0
+  const h = setup(on, { enabled: true, contextTokens: () => ctx, jev: sequence(ok(L3)) })
+  await config($, 'notify off')
+  await typed($, 't1', '設計多租戶權限架構')
+  ctx = 120000
+  await typed($, 't2', 'somm:haiku 看一下 package.json 的 version')
+  expect(rungs(h)).toEqual(['opus/high', 'haiku/medium'])
+  expect(h.toasts.length).toBe(0)
+})
+
+test('spinner off leaves the spinner as Claude Code draws it', async ($, on) => {
+  setup(on, { enabled: true })
+  const suffixes: string[] = []
+  on('ui.render', ($, e) => {
+    suffixes.push(e.props.suffix)
+    const { Text } = $.ui.resolve(e)
+    return Text({ children: e.props.message })
+  })
+  await config($, 'spinner off')
+  await turn($, 't1', '看一下 package.json 的 version')
+  await $.ui.render({ surface: 'terminal', component: 'Spinner', requestId: 'a1', props: { message: 'Thinking' } })
+  expect(suffixes.at(-1)).toBeUndefined()
+  await config($, 'spinner on')
+  await $.ui.render({ surface: 'terminal', component: 'Spinner', requestId: 'a2', props: { message: 'Thinking' } })
+  expect(suffixes.at(-1)).toContain('🍷')
+})
+
+test('config enabled off is the same as /somm off', async ($, on) => {
+  const h = setup(on, { enabled: true })
+  expect(await config($, 'enabled off')).toContain('已關閉')
+  await turn($, 't1', '看一下 package.json 的 version')
+  expect(h.fetches.length).toBe(0)
+  expect(await config($)).toContain('enabled off')
+})

@@ -128,6 +128,18 @@ On by default after install; there is no need to run `/somm on`. Before a reques
 | `/somm status` | Show on/off, whether this project is turned off, whether the API key is set, and this session's rung |
 | `/somm log [n]` | The last n routing records: chosen rung, Jev's probabilities, cache reads and writes |
 | `/somm events` | The last 20 state events (model switches, cleared or resumed conversations, prompt origins, each turn's routing), for finding out why sommelier did not switch |
+| `/somm config` | List the settings; `/somm config <name> <value>` changes one, effective at once |
+
+**Settings** (`/somm config <name> <value>`):
+
+| Name | Default | Values |
+|---|---|---|
+| `enabled` | on | on／off, the same as `/somm on` and `/somm off` |
+| `base` | opus | The rung for requests that need investigation or comparison (L2), and the lowest model for high-risk requests. `haiku`／`sonnet`／`opus`, optionally with effort, e.g. `opus:high` |
+| `profile` | balanced | `saver` (uses opus less, calls a new topic sooner), `balanced`, `quality` (sonnet and opus sooner, haiku only for conversations under 15k) |
+| `allowed` | haiku-opus | The models sommelier may pick, e.g. `sonnet-opus` never uses haiku. A `somm:` override is not limited |
+| `spinner` | on | Whether the spinner shows this turn's routing while Claude works |
+| `notify` | important | Important notices such as a switch that rewrites the cache; `off` shows none |
 
 When on, the status line under the prompt shows the model, its version and the effort that actually answered, for example `🍷 haiku 5.5·medium`. The model Claude Code shows next to it is the session's own.
 
