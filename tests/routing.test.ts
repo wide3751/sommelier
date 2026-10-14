@@ -17,7 +17,7 @@ function jevBody(probs: number[], newTask = 0.9, highRisk = 0.05) {
 function setup(on, opts: { enabled?: boolean; key?: string | null; jev?: (body: any) => any; messages?: any[]; contextTokens?: number } = {}) {
   const clock = mock.clock(on)
   const saved = new Map<string, unknown>()
-  if (opts.enabled) saved.set('somm:enabled', true)
+  if (opts.enabled !== undefined) saved.set('somm:enabled', opts.enabled)
   on('store.get', ($, e) => ({ value: saved.get(e.key) }))
   on('store.set', ($, e) => {
     saved.set(e.key, e.value)
@@ -83,8 +83,15 @@ function records(saved: Map<string, unknown>) {
   return [...saved.entries()].filter(([k]) => k.startsWith('somm:rec:')).map(([, v]) => v as any)
 }
 
-test('off by default: requests are untouched and Jev is never called', async ($, on) => {
+test('on by default: a fresh install judges the first turn', async ($, on) => {
   const h = setup(on)
+  await $.turn.start({ text: 'CURRENT', turnId: 't1' })
+  await step($, 't1', 0)
+  expect(h.fetches.length).toBe(1)
+})
+
+test('after /somm off requests are untouched and Jev is never called', async ($, on) => {
+  const h = setup(on, { enabled: false })
   await $.turn.start({ text: 'CURRENT', turnId: 't1' })
   await step($, 't1', 0)
   expect(h.sent[0].model).toBe(OPUS)
@@ -191,7 +198,7 @@ test('subagent requests are never changed', async ($, on) => {
 })
 
 test('/somm on and off toggle routing', async ($, on) => {
-  const h = setup(on)
+  const h = setup(on, { enabled: false })
   const onReply = await $.command.run({ command: 'somm', args: 'on' })
   expect(onReply.text).toContain('已開啟')
   expect(h.saved.get('somm:enabled')).toBe(true)
@@ -214,7 +221,7 @@ test('the status line has no preset note when Jev fails and the session model an
 })
 
 test('the status line stays empty while off and clears on /somm off', async ($, on) => {
-  const h = setup(on)
+  const h = setup(on, { enabled: false })
   await $.turn.start({ text: 'CURRENT', turnId: 't1' })
   await step($, 't1', 0)
   expect(h.statuses.filter((s) => s !== undefined).length).toBe(0)

@@ -27,11 +27,10 @@ claude plugin install sommelier@sommelier
 printf '{"typesafe_api_key":"%s"}' "$TYPESAFE_API_KEY" | claude plugin configure sommelier@sommelier --values-stdin
 ```
 
-Restart Claude Code, then:
+Restart Claude Code and sommelier is on, with nothing else to set up:
 
-1. Run `/somm on`
-2. Send a request, for example "Add a timezone parameter to parseDate"
-3. The spinner shows the chosen rung, for example `sonnet·medium L1 · 新話題` (new task)
+1. Send a request, for example "Add a timezone parameter to parseDate"
+2. The spinner shows the chosen rung, for example `sonnet·medium L1 · 新話題` (new task)
 
 Run `/somm off` to stop. See [Install](#install) and [Usage](#usage) for details.
 
@@ -79,9 +78,8 @@ Run these in order. If any step fails, stop and report the error to the user:
 
 5. Run `claude plugin list` and check that `sommelier@sommelier` shows Status `enabled`.
 6. The user has to do the rest inside Claude Code; the agent can't do it from a shell. Tell the user to:
-   1. Restart Claude Code
-   2. Run `/somm status` and check it says the API key is set
-   3. Run `/somm on` to turn it on
+   1. Restart Claude Code; sommelier turns on by itself
+   2. Run `/somm status` and check it says it is on and the API key is set
 
 ## Requirements
 
@@ -121,11 +119,11 @@ printf '{"typesafe_api_key":"%s"}' "$TYPESAFE_API_KEY" | claude plugin configure
 
 ## Usage
 
-Off by default.
+On by default after install; there is no need to run `/somm on`.
 
 | Command | Description |
 |---|---|
-| `/somm on` | Turn on. The next prompt you send is judged by Jev |
+| `/somm on` | Turn back on. The next prompt you send is judged by Jev |
 | `/somm off` | Turn off and keep the session's own model and effort |
 | `/somm status` | Show on/off, whether the API key is set, and this session's rung |
 | `/somm log [n]` | The last n routing records: chosen rung, Jev's probabilities, cache reads and writes |
@@ -189,7 +187,7 @@ session · jev_failed:timeout cache read 0 write 15873
 
 ## Privacy and data
 
-When on, sommelier sends data to TypeSafe for judging. Nothing is sent while it is off.
+sommelier is on by default after install, and while on it sends data to TypeSafe for judging. Once you run `/somm off`, nothing is sent.
 
 - **When**: currently only the session's first request (once per-prompt routing lands, every new request)
 - **What is sent**: the current request (up to 2,000 characters) and the text of the last 3 turns (up to 500 characters each, keeping the end)

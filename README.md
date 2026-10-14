@@ -27,11 +27,10 @@ claude plugin install sommelier@sommelier
 printf '{"typesafe_api_key":"%s"}' "$TYPESAFE_API_KEY" | claude plugin configure sommelier@sommelier --values-stdin
 ```
 
-重新啟動 Claude Code 後：
+重新啟動 Claude Code 就會自動開啟，不用另外設定：
 
-1. 輸入 `/somm on`
-2. 送出一個請求，例如「幫 parseDate 加上時區參數」
-3. spinner 會顯示選到的檔位，例如 `sonnet·medium L1 · 新話題`
+1. 送出一個請求，例如「幫 parseDate 加上時區參數」
+2. spinner 會顯示選到的檔位，例如 `sonnet·medium L1 · 新話題`
 
 不想用了就輸入 `/somm off`。詳細步驟見[安裝](#安裝)與[使用](#使用)。
 
@@ -78,10 +77,9 @@ printf '{"typesafe_api_key":"%s"}' "$TYPESAFE_API_KEY" | claude plugin configure
    ```
 
 5. 執行 `claude plugin list`，確認 `sommelier@sommelier` 的 Status 是 `enabled`。
-6. 以下步驟必須由使用者在 Claude Code 裡操作，agent 從 shell 做不到。請把這三步告訴使用者：
-   1. 重新啟動 Claude Code
-   2. 輸入 `/somm status`，確認顯示「API key 已設定」
-   3. 輸入 `/somm on` 開啟
+6. 以下步驟必須由使用者在 Claude Code 裡操作，agent 從 shell 做不到。請把這兩步告訴使用者：
+   1. 重新啟動 Claude Code，sommelier 會自動開啟
+   2. 輸入 `/somm status`，確認顯示「開啟」與「API key 已設定」
 
 ## 需求
 
@@ -121,11 +119,11 @@ printf '{"typesafe_api_key":"%s"}' "$TYPESAFE_API_KEY" | claude plugin configure
 
 ## 使用
 
-預設是**關閉**的。
+安裝後預設**開啟**，不用另外輸入 `/somm on`。
 
 | 指令 | 說明 |
 |---|---|
-| `/somm on` | 開啟。接下來你送出的第一句話會交給 Jev 判斷 |
+| `/somm on` | 重新開啟。接下來你送出的第一句話會交給 Jev 判斷 |
 | `/somm off` | 關閉，沿用 session 自己的模型與 effort |
 | `/somm status` | 顯示開關、API key 是否設定、本 session 的檔位 |
 | `/somm log [n]` | 最近 n 筆分派紀錄：選了哪個檔位、Jev 的機率、cache 讀寫量 |
@@ -186,7 +184,7 @@ session · jev_failed:timeout cache read 0 write 15873
 
 ## 隱私與資料
 
-開啟後，sommelier 會把資料送到 TypeSafe 判斷。關閉時不會送出任何東西。
+sommelier 安裝後預設開啟，開啟時會把資料送到 TypeSafe 判斷。用 `/somm off` 關閉後就不會送出任何東西。
 
 - **什麼時候送**：目前只有 session 的第一個請求會送出（之後逐句判斷時，每個新請求都會送）
 - **送出什麼**：這一句請求（最多 2000 字），以及最近 3 輪對話的文字（每則最多 500 字，只保留結尾）

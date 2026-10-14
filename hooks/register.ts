@@ -41,7 +41,8 @@ const seen = { turns: 0, output: 0, fresh: 0 }
 let lastTtl = '1h'
 
 async function isEnabled($) {
-  return (await $.store.get(ENABLED_KEY)) === true
+  // Unset means a fresh install: on until the user runs /somm off.
+  return (await $.store.get(ENABLED_KEY)) !== false
 }
 
 async function apiKey($) {
