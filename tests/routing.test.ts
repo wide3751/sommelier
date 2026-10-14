@@ -26,9 +26,12 @@ function setup(
   if (opts.enabled !== undefined) saved.set('somm:enabled', opts.enabled)
   if (opts.consent !== false) saved.set('somm:consent', true)
   const asked: string[] = []
+  // What reached the outside, in order: 'ask' for a question, 'fetch' for Jev.
+  const order: string[] = []
   on('tool.call', ($, e) => {
     const q = e.questions[0]
     asked.push(q.question)
+    order.push('ask')
     if (opts.answer === null) return { deny: 'dismissed' }
     return { result: { questions: e.questions, answers: { [q.question]: opts.answer ?? q.options[0].label } } }
   })
@@ -59,6 +62,7 @@ function setup(
   on('http.fetch', async ($, e) => {
     const body = JSON.parse(e.init.body)
     fetches.push(body)
+    order.push('fetch')
     return { value: opts.jev ? await opts.jev(body) : { status: 200, ok: true, headers: {}, text: jevBody([0.9, 0.08, 0.02, 0]) } }
   })
   const sent: any[] = []
@@ -81,7 +85,7 @@ function setup(
     toasts.push(e.text)
     return { value: undefined }
   })
-  return { clock, saved, fetches, sent, statuses, toasts, asked }
+  return { clock, saved, fetches, sent, statuses, toasts, asked, order }
 }
 
 async function drain(stream) {
@@ -364,6 +368,30 @@ test('the first send asks for consent and agreeing remembers it', async ($, on) 
   expect(h.saved.get('somm:consent')).toBe(true)
 })
 
+test('nothing is sent to Jev until consent is given', async ($, on) => {
+  const h = setup(on, { consent: false })
+  await $.turn.start({ text: 'CURRENT', turnId: 't1' })
+  await step($, 't1', 0)
+  expect(h.order).toEqual(['ask', 'fetch'])
+})
+
+test('after agreeing, later sends are not asked about again', async ($, on) => {
+  // A failed first judgement makes the next turn ask Jev again.
+  let calls = 0
+  const h = setup(on, {
+    consent: false,
+    jev: () => (++calls === 1 ? { status: 500, ok: false, headers: {}, text: '' } : { status: 200, ok: true, headers: {}, text: jevBody([0.9, 0.08, 0.02, 0]) }),
+  })
+  await $.turn.start({ text: 'FIRST', turnId: 't1' })
+  await step($, 't1', 0)
+  await complete($, 't1')
+  await $.turn.start({ text: 'SECOND', turnId: 't2' })
+  await step($, 't2', 0)
+  expect(h.fetches.length).toBe(2)
+  expect(h.asked.length).toBe(1)
+  expect(h.order).toEqual(['ask', 'fetch', 'fetch'])
+})
+
 test('declining consent sends nothing, keeps the session model and turns sommelier off', async ($, on) => {
   const h = setup(on, { consent: false, answer: '不同意，關閉 sommelier' })
   await $.turn.start({ text: 'CURRENT', turnId: 't1' })
@@ -377,11 +405,27 @@ test('declining consent sends nothing, keeps the session model and turns sommeli
 
 test('dismissing the consent question sends nothing and asks again next time', async ($, on) => {
   const h = setup(on, { consent: false, answer: null })
-  await $.turn.start({ text: 'CURRENT', turnId: 't1' })
+  await $.turn.start({ text: 'FIRST', turnId: 't1' })
   await step($, 't1', 0)
+  await complete($, 't1')
   expect(h.fetches.length).toBe(0)
   expect(h.saved.get('somm:enabled')).not.toBe(false)
   expect(h.saved.get('somm:consent')).not.toBe(true)
+  expect(records(h.saved)[0].reason).toBe('consent_unanswered')
+  await $.turn.start({ text: 'SECOND', turnId: 't2' })
+  await step($, 't2', 0)
+  expect(h.asked.length).toBe(2)
+  expect(h.fetches.length).toBe(0)
+})
+
+test('an answer other than the two options is not taken as declining', async ($, on) => {
+  const h = setup(on, { consent: false, answer: '等等，我想先看隱私說明' })
+  await $.turn.start({ text: 'CURRENT', turnId: 't1' })
+  await step($, 't1', 0)
+  await complete($, 't1')
+  expect(h.fetches.length).toBe(0)
+  expect(h.saved.get('somm:enabled')).not.toBe(false)
+  expect(records(h.saved)[0].reason).toBe('consent_unanswered')
 })
 
 test('without an API key nobody is asked for consent', async ($, on) => {

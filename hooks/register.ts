@@ -32,7 +32,7 @@ const JEV_TIMEOUT_MS = 1500
 
 const REASON_LABEL = {
   first_turn: '新話題', continuation: '沿用', no_judgement: '尚未判斷', switch_not_worth: '換模型不划算，沿用',
-  project_off: '專案停用', consent_declined: '未同意送出',
+  project_off: '專案停用', consent_declined: '未同意送出', consent_unanswered: '尚未確認送出',
 }
 
 let configKey = ''
@@ -66,23 +66,25 @@ async function projectOff($) {
   return (await $.store.get(PROJECT_OFF_PREFIX + (await $.session.root()))) === true
 }
 
-// Asks once before the first prompt ever leaves the machine. Declining turns
-// sommelier off; dismissing (or a headless run) only skips this turn.
-async function hasConsent($) {
-  if ((await $.store.get(CONSENT_KEY)) === true) return true
+// Asks once before the first prompt ever leaves the machine: 'agreed',
+// 'declined' (turns sommelier off) or 'unanswered' (dismissed or headless;
+// only skips this turn, so the next one asks again).
+async function askConsent($) {
+  if ((await $.store.get(CONSENT_KEY)) === true) return 'agreed'
   let answer
   try {
     answer = await $.ui.ask(CONSENT_QUESTION, { header: 'sommelier', options: [CONSENT_AGREE, CONSENT_DECLINE] })
   } catch {
-    return false
+    return 'unanswered'
   }
   if (answer === CONSENT_AGREE) {
     await $.store.set(CONSENT_KEY, true)
-    return true
+    return 'agreed'
   }
+  if (answer !== CONSENT_DECLINE) return 'unanswered'
   await $.store.set(ENABLED_KEY, false)
   $.ui.toast('sommelier 已關閉，之後可用 /somm on 重新開啟')
-  return false
+  return 'declined'
 }
 
 async function apiKey($) {
@@ -269,8 +271,9 @@ export function register(on, options) {
     prompts.set(e.turnId, e.text)
     if (e.text !== '' && !sessionRung && !heldSession && (await isEnabled($)) && !(await projectOff($))) {
       // Without a key nothing would be sent, so there is nothing to consent to.
-      if ((await apiKey($)) && !(await hasConsent($))) blocked.set(e.turnId, 'consent_declined')
-      else pending.set(e.turnId, judge($, e.text, await $.session.messages()))
+      const consent = (await apiKey($)) ? await askConsent($) : 'agreed'
+      if (consent === 'agreed') pending.set(e.turnId, judge($, e.text, await $.session.messages()))
+      else blocked.set(e.turnId, 'consent_' + consent)
     }
     return next(e)
   })
