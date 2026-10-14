@@ -89,13 +89,14 @@ printf '{"typesafe_api_key":"%s"}' "$TYPESAFE_API_KEY" | claude plugin configure
 
 ## Usage
 
-On by default after install; there is no need to run `/somm on`.
+On by default after install; there is no need to run `/somm on`. Before a request is first sent to TypeSafe, sommelier asks for your consent: agree and it never asks again; decline and that turn keeps the session's model and sommelier turns off.
 
 | Command | Description |
 |---|---|
 | `/somm on` | Turn back on. The next prompt you send is judged by Jev |
 | `/somm off` | Turn off and keep the session's own model and effort |
-| `/somm status` | Show on/off, whether the API key is set, and this session's rung |
+| `/somm off --project` | Turn off for the current project only, so nothing from it is sent; `/somm on --project` undoes it |
+| `/somm status` | Show on/off, whether this project is turned off, whether the API key is set, and this session's rung |
 | `/somm log [n]` | The last n routing records: chosen rung, Jev's probabilities, cache reads and writes |
 
 When on, the status line under the prompt shows the model that actually answered, for example `🍷 實際模型 haiku·medium（預設 opus）` ("actual model … (default opus)"). The part in parentheses is the session's own model and appears only when sommelier replaced it.
@@ -103,7 +104,8 @@ When on, the status line under the prompt shows the model that actually answered
 If another plugin already uses `/somm`, the command falls back to `/sommelier`.
 
 **sommelier leaves the model unchanged when:**
-- it is off
+- it is off, or turned off for the current project
+- you did not agree to the consent question before the first send
 - Jev times out (1.5 s), returns an error, or no API key is set
 - the request comes from a subagent
 
@@ -157,15 +159,14 @@ session · jev_failed:timeout cache read 0 write 15873
 
 ## Privacy and data
 
-sommelier is on by default after install, and while on it sends data to TypeSafe for judging. Once you run `/somm off`, nothing is sent.
+sommelier is on by default after install, and while on it sends data to TypeSafe for judging. It asks for your consent before the first send; once you run `/somm off`, nothing is sent.
 
 - **When**: currently only the session's first request (once per-prompt routing lands, every new request)
 - **What is sent**: the current request (up to 2,000 characters) and the text of the last 3 turns (up to 500 characters each, keeping the end)
-- **What is not sent**: file contents, tool calls and tool output, subagent requests
-- **Local records**: `/somm log` records store only the rung, Jev's probabilities, latency, and cache reads and writes — no conversation text
+- **Masked before sending**: common secret formats become `[REDACTED]`: `sk-`, `AKIA`, `ghp_`, `xoxb-`/`xoxp-`, `AIza`, `Bearer`, `password=`, JWTs, private key blocks, and hex strings of 32 or more characters
+- **What is not sent**: file contents, tool calls and tool output, subagent requests, and projects turned off with `/somm off --project`
+- **Local records**: `/somm log` records store the rung, Jev's probabilities, latency, cache reads and writes, and the first 40 characters of the prompt (masked); turned-off projects store no prompt
 - **API key**: stored in the macOS Keychain (`/plugin configure`), or read from the `TYPESAFE_API_KEY` environment variable
-
-Secret masking before sending and per-project opt-out are planned.
 
 ## Contributing
 

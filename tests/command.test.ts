@@ -8,6 +8,7 @@ test('/somm is registered and answers', async ($, on) => {
     return { value: undefined }
   })
   on('store.get', () => ({ value: undefined }))
+  on('session.root', () => ({ value: '/work' }))
   mock.env(on, {})
 
   await $.session.start({ surface: 'terminal', isInteractive: true, cwd: '/work' })

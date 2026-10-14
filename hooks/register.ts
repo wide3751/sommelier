@@ -1,31 +1,48 @@
 // sommelier hooks module.
 //
-// Ticket 04 (walking skeleton): once `/somm on`, the first prompt you send in a
-// session is judged by Jev and routed to a rung of the ladder; later turns reuse
-// that rung. Jev failing or timing out leaves the request unchanged. Cache-ledger
-// routing, guards, overrides and the full UI arrive in later tickets.
+// Ticket 04 (walking skeleton): while on (the default), the first prompt you send
+// in a session is judged by Jev and routed to a rung of the ladder; later turns
+// reuse that rung. Jev failing or timing out leaves the request unchanged.
+// Ticket 09 (privacy): consent before the first send, redaction, per-project off.
+// Cache-ledger routing, guards, overrides and the full UI arrive in later tickets.
 //
 // Every mods API call stays in this file (validation forbids passing `$` to an
-// imported function); the routing logic itself lives in decide.ts / jevState.ts.
+// imported function); the routing logic itself lives in decide.ts / jevState.ts /
+// redact.ts.
 
 import { JEV } from './questions.ts'
 import { DEFAULT_TURN, cacheTtl, modelId, shortModel, switchCost, targetRung } from './decide.ts'
 import { buildJevState } from './jevState.ts'
+import { redact } from './redact.ts'
 
 const COMMAND = 'somm'
 const FALLBACK_COMMAND = 'sommelier'
 const ENABLED_KEY = 'somm:enabled'
+const CONSENT_KEY = 'somm:consent'
+const PROJECT_OFF_PREFIX = 'somm:project-off:'
+const PROMPT_SUMMARY_CHARS = 40
+const CONSENT_QUESTION =
+  'sommelier 會把這一輪的請求與最近 3 輪對話（不含工具輸出，常見密鑰格式已遮蔽）送到 TypeSafe，判斷要用哪個模型。要開始使用嗎？'
+const CONSENT_AGREE = '同意，開始使用'
+const CONSENT_DECLINE = '不同意，關閉 sommelier'
 const REC_PREFIX = 'somm:rec:'
 const REC_CAP = 500
 const JEV_URL = 'https://api.typesafe.ai/v1/systemone'
 const JEV_TIMEOUT_MS = 1500
 
-const REASON_LABEL = { first_turn: '新話題', continuation: '沿用', no_judgement: '尚未判斷', switch_not_worth: '換模型不划算，沿用' }
+const REASON_LABEL = {
+  first_turn: '新話題', continuation: '沿用', no_judgement: '尚未判斷', switch_not_worth: '換模型不划算，沿用',
+  project_off: '專案停用', consent_declined: '未同意送出',
+}
 
 let configKey = ''
 // Jev requests started at turn.start, keyed by turnId so a queued prompt never
 // picks up another turn's judgement.
 const pending = new Map()
+// Turns whose prompt was never sent, keyed by turnId, with the reason why.
+const blocked = new Map()
+// Each turn's prompt, for the record's redacted summary.
+const prompts = new Map()
 // Per-turn decision and usage totals, filled by turn.step, written at turn.complete.
 const turns = new Map()
 // The first successful judgement of this session; reused by later turns until
@@ -43,6 +60,29 @@ let lastTtl = '1h'
 async function isEnabled($) {
   // Unset means a fresh install: on until the user runs /somm off.
   return (await $.store.get(ENABLED_KEY)) !== false
+}
+
+async function projectOff($) {
+  return (await $.store.get(PROJECT_OFF_PREFIX + (await $.session.root()))) === true
+}
+
+// Asks once before the first prompt ever leaves the machine. Declining turns
+// sommelier off; dismissing (or a headless run) only skips this turn.
+async function hasConsent($) {
+  if ((await $.store.get(CONSENT_KEY)) === true) return true
+  let answer
+  try {
+    answer = await $.ui.ask(CONSENT_QUESTION, { header: 'sommelier', options: [CONSENT_AGREE, CONSENT_DECLINE] })
+  } catch {
+    return false
+  }
+  if (answer === CONSENT_AGREE) {
+    await $.store.set(CONSENT_KEY, true)
+    return true
+  }
+  await $.store.set(ENABLED_KEY, false)
+  $.ui.toast('sommelier 已關閉，之後可用 /somm on 重新開啟')
+  return false
 }
 
 async function apiKey($) {
@@ -89,7 +129,10 @@ async function waitCapped($, promise) {
 }
 
 async function decideTurn($, e) {
+  const why = blocked.get(e.turnId)
+  if (why) return { rung: null, reason: why }
   if (!(await isEnabled($))) return { rung: null, reason: 'off' }
+  if (await projectOff($)) return { rung: null, reason: 'project_off' }
   const p = pending.get(e.turnId)
   if (p) {
     pending.delete(e.turnId)
@@ -164,6 +207,12 @@ function formatRecord(r) {
 
 async function runCommand($, e) {
   const [sub, arg] = (e.args || '').trim().split(/\s+/)
+  if (arg === '--project' && (sub === 'on' || sub === 'off')) {
+    const root = await $.session.root()
+    if (sub === 'off') await $.store.set(PROJECT_OFF_PREFIX + root, true)
+    else await $.store.delete(PROJECT_OFF_PREFIX + root)
+    return { text: sub === 'off' ? 'sommelier 在 ' + root + ' 停用：這個專案的內容不會送給 Jev。' : 'sommelier 在 ' + root + ' 重新啟用。' }
+  }
   if (sub === 'on') {
     await $.store.set(ENABLED_KEY, true)
     return { text: 'sommelier 已開啟：接下來你送出的第一個請求會交給 Jev 判斷。' }
@@ -183,9 +232,10 @@ async function runCommand($, e) {
     const on = await isEnabled($)
     const key = (await apiKey($)) ? '已設定' : '未設定'
     const rung = sessionRung ? sessionRung.model + '·' + sessionRung.effort : '（尚未判斷）'
-    return { text: 'sommelier ' + (on ? '開啟' : '關閉') + '｜API key ' + key + '｜本 session 檔位 ' + rung }
+    const project = (await projectOff($)) ? '｜此專案停用' : ''
+    return { text: 'sommelier ' + (on ? '開啟' : '關閉') + project + '｜API key ' + key + '｜本 session 檔位 ' + rung }
   }
-  return { text: '用法：/somm on | off | status | log [n]' }
+  return { text: '用法：/somm on | off [--project] | status | log [n]' }
 }
 
 export function register(on, options) {
@@ -216,8 +266,11 @@ export function register(on, options) {
   on('command.run', { command: FALLBACK_COMMAND }, async ($, e) => runCommand($, e))
 
   on('turn.start', async ($, e, next) => {
-    if (e.text !== '' && !sessionRung && !heldSession && (await isEnabled($))) {
-      pending.set(e.turnId, judge($, e.text, await $.session.messages()))
+    prompts.set(e.turnId, e.text)
+    if (e.text !== '' && !sessionRung && !heldSession && (await isEnabled($)) && !(await projectOff($))) {
+      // Without a key nothing would be sent, so there is nothing to consent to.
+      if ((await apiKey($)) && !(await hasConsent($))) blocked.set(e.turnId, 'consent_declined')
+      else pending.set(e.turnId, judge($, e.text, await $.session.messages()))
     }
     return next(e)
   })
@@ -251,6 +304,9 @@ export function register(on, options) {
 
   on('turn.complete', async ($, e, next) => {
     pending.delete(e.turnId)
+    blocked.delete(e.turnId)
+    const prompt = prompts.get(e.turnId)
+    prompts.delete(e.turnId)
     const t = turns.get(e.turnId)
     turns.delete(e.turnId)
     if (!e.agentId && t) {
@@ -260,7 +316,9 @@ export function register(on, options) {
     }
     if (!e.agentId && t && t.decision.reason !== 'off') {
       const { decision, ...usage } = t
-      await writeRecord($, { turnId: e.turnId, ...decision, ...usage })
+      // A stopped project keeps no trace of its prompts.
+      const summary = prompt && decision.reason !== 'project_off' ? redact(prompt).slice(0, PROMPT_SUMMARY_CHARS) : undefined
+      await writeRecord($, { turnId: e.turnId, ...decision, ...usage, prompt: summary })
     }
     return next(e)
   })

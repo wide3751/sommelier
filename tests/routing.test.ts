@@ -14,10 +14,25 @@ function jevBody(probs: number[], newTask = 0.9, highRisk = 0.05) {
 }
 
 // Common stubs. Returns handles the tests read.
-function setup(on, opts: { enabled?: boolean; key?: string | null; jev?: (body: any) => any; messages?: any[]; contextTokens?: number } = {}) {
+function setup(
+  on,
+  opts: {
+    enabled?: boolean; consent?: boolean; answer?: string | null; root?: string
+    key?: string | null; jev?: (body: any) => any; messages?: any[]; contextTokens?: number
+  } = {},
+) {
   const clock = mock.clock(on)
   const saved = new Map<string, unknown>()
   if (opts.enabled !== undefined) saved.set('somm:enabled', opts.enabled)
+  if (opts.consent !== false) saved.set('somm:consent', true)
+  const asked: string[] = []
+  on('tool.call', ($, e) => {
+    const q = e.questions[0]
+    asked.push(q.question)
+    if (opts.answer === null) return { deny: 'dismissed' }
+    return { result: { questions: e.questions, answers: { [q.question]: opts.answer ?? q.options[0].label } } }
+  })
+  on('session.root', () => ({ value: opts.root ?? '/work/repo' }))
   on('store.get', ($, e) => ({ value: saved.get(e.key) }))
   on('store.set', ($, e) => {
     saved.set(e.key, e.value)
@@ -66,7 +81,7 @@ function setup(on, opts: { enabled?: boolean; key?: string | null; jev?: (body: 
     toasts.push(e.text)
     return { value: undefined }
   })
-  return { clock, saved, fetches, sent, statuses, toasts }
+  return { clock, saved, fetches, sent, statuses, toasts, asked }
 }
 
 async function drain(stream) {
@@ -272,4 +287,88 @@ test('an upgrade goes ahead however long the conversation is', async ($, on) => 
   await step($, 't1', 0, { model: 'claude-haiku-5-5' })
   expect(h.sent[0].model).toBe(OPUS)
   expect(h.toasts.length).toBe(0)
+})
+
+test('secrets are redacted before anything is sent to Jev', async ($, on) => {
+  const secret = 'sk-ant-api03-abcdefghijklmnopqrstuvwxyz'
+  const h = setup(on, {
+    enabled: true,
+    messages: [
+      { role: 'user', text: 'my token is ghp_abcdefghijklmnopqrstuvwxyz0123', toolUses: [] },
+      { role: 'assistant', text: 'got it', toolUses: [] },
+    ],
+  })
+  await $.turn.start({ text: 'use ' + secret + ' and password=hunter2 here', turnId: 't1' })
+  await step($, 't1', 0)
+  const sent = JSON.stringify(h.fetches[0])
+  expect(sent).not.toContain(secret)
+  expect(sent).not.toContain('hunter2')
+  expect(sent).not.toContain('ghp_')
+  expect(sent).toContain('[REDACTED]')
+})
+
+test('the first send asks for consent and agreeing remembers it', async ($, on) => {
+  const h = setup(on, { consent: false })
+  await $.turn.start({ text: 'CURRENT', turnId: 't1' })
+  await step($, 't1', 0)
+  expect(h.asked.length).toBe(1)
+  expect(h.asked[0]).toContain('TypeSafe')
+  expect(h.fetches.length).toBe(1)
+  expect(h.saved.get('somm:consent')).toBe(true)
+})
+
+test('declining consent sends nothing, keeps the session model and turns sommelier off', async ($, on) => {
+  const h = setup(on, { consent: false, answer: '不同意，關閉 sommelier' })
+  await $.turn.start({ text: 'CURRENT', turnId: 't1' })
+  await step($, 't1', 0)
+  await complete($, 't1')
+  expect(h.fetches.length).toBe(0)
+  expect(h.sent[0].model).toBe(OPUS)
+  expect(h.saved.get('somm:enabled')).toBe(false)
+  expect(records(h.saved)[0].reason).toBe('consent_declined')
+})
+
+test('dismissing the consent question sends nothing and asks again next time', async ($, on) => {
+  const h = setup(on, { consent: false, answer: null })
+  await $.turn.start({ text: 'CURRENT', turnId: 't1' })
+  await step($, 't1', 0)
+  expect(h.fetches.length).toBe(0)
+  expect(h.saved.get('somm:enabled')).not.toBe(false)
+  expect(h.saved.get('somm:consent')).not.toBe(true)
+})
+
+test('without an API key nobody is asked for consent', async ($, on) => {
+  const h = setup(on, { consent: false, key: null })
+  await $.turn.start({ text: 'CURRENT', turnId: 't1' })
+  await step($, 't1', 0)
+  expect(h.asked.length).toBe(0)
+})
+
+test('/somm off --project stops sending from this repo only', async ($, on) => {
+  const h = setup(on, { enabled: true })
+  const reply = await $.command.run({ command: 'somm', args: 'off --project' })
+  expect(reply.text).toContain('/work/repo')
+  await $.turn.start({ text: 'CURRENT', turnId: 't1' })
+  await step($, 't1', 0)
+  await complete($, 't1')
+  expect(h.fetches.length).toBe(0)
+  expect(h.sent[0].model).toBe(OPUS)
+  expect(records(h.saved)[0].reason).toBe('project_off')
+  expect(records(h.saved)[0].prompt).toBe(undefined)
+  await $.command.run({ command: 'somm', args: 'on --project' })
+  await $.turn.start({ text: 'CURRENT', turnId: 't2' })
+  await step($, 't2', 0)
+  expect(h.fetches.length).toBe(1)
+})
+
+test('a record keeps at most 40 characters of the prompt, redacted', async ($, on) => {
+  const h = setup(on, { enabled: true })
+  const prompt = 'AKIAABCDEFGHIJKLMNOP ' + '這是一段很長的請求'.repeat(10)
+  await $.turn.start({ text: prompt, turnId: 't1' })
+  await step($, 't1', 0)
+  await complete($, 't1')
+  const rec = records(h.saved)[0]
+  expect(rec.prompt.length).toBeLessThanOrEqual(40)
+  expect(rec.prompt).not.toContain('AKIA')
+  expect(rec.prompt).toContain('[REDACTED]')
 })

@@ -1,6 +1,9 @@
 // Builds the `state` sent to Jev from the session transcript (pure).
 // Only user and assistant text: tool calls and tool results are dropped,
 // because unrelated content lowers Jev's accuracy (context rot).
+// Every text is redacted before it is cut, so a secret is never half kept.
+
+import { redact } from './redact.ts'
 
 export const RECENT_TURNS = 3
 export const MAX_CHARS = 500
@@ -20,6 +23,6 @@ export function buildJevState(messages, currentText, opts = {}) {
   )
   const last = texts[texts.length - 1]
   const history = last && last.role === 'user' && last.text.trim() === currentText.trim() ? texts.slice(0, -1) : texts
-  const recent = history.slice(-turns * 2).map((m) => ({ role: m.role, text: keepEnd(m.text, max) }))
-  return { current_request: keepEnd(currentText, max * 4), recent_turns: recent }
+  const recent = history.slice(-turns * 2).map((m) => ({ role: m.role, text: keepEnd(redact(m.text), max) }))
+  return { current_request: keepEnd(redact(currentText), max * 4), recent_turns: recent }
 }

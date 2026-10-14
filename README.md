@@ -89,13 +89,14 @@ printf '{"typesafe_api_key":"%s"}' "$TYPESAFE_API_KEY" | claude plugin configure
 
 ## 使用
 
-安裝後預設**開啟**，不用另外輸入 `/somm on`。
+安裝後預設**開啟**，不用另外輸入 `/somm on`。第一次要把請求送給 TypeSafe 之前，會先跳出確認：同意後就不再詢問；不同意的話，這一輪沿用原本的模型，並關閉 sommelier。
 
 | 指令 | 說明 |
 |---|---|
 | `/somm on` | 重新開啟。接下來你送出的第一句話會交給 Jev 判斷 |
 | `/somm off` | 關閉，沿用 session 自己的模型與 effort |
-| `/somm status` | 顯示開關、API key 是否設定、本 session 的檔位 |
+| `/somm off --project` | 只在目前的專案停用，這個專案的內容不會送出；`/somm on --project` 恢復 |
+| `/somm status` | 顯示開關、此專案是否停用、API key 是否設定、本 session 的檔位 |
 | `/somm log [n]` | 最近 n 筆分派紀錄：選了哪個檔位、Jev 的機率、cache 讀寫量 |
 
 開啟後，prompt 下方的狀態列會顯示實際回答的模型，例如 `🍷 實際模型 haiku·medium（預設 opus）`。括號裡是 session 自己設定的模型，只有被 sommelier 換掉時才會出現。
@@ -103,7 +104,8 @@ printf '{"typesafe_api_key":"%s"}' "$TYPESAFE_API_KEY" | claude plugin configure
 `/somm` 如果被其他 plugin 占用，會自動改用 `/sommelier`。
 
 **以下情況 sommelier 不會改動模型：**
-- 關閉時
+- 關閉時，或目前專案已停用
+- 第一次送出前的確認沒有同意
 - Jev 逾時（1.5 秒）、回傳錯誤，或沒有設定 API key
 - subagent 的請求
 
@@ -154,15 +156,14 @@ session · jev_failed:timeout cache read 0 write 15873
 
 ## 隱私與資料
 
-sommelier 安裝後預設開啟，開啟時會把資料送到 TypeSafe 判斷。用 `/somm off` 關閉後就不會送出任何東西。
+sommelier 安裝後預設開啟，開啟時會把資料送到 TypeSafe 判斷。第一次送出前會先詢問你是否同意；用 `/somm off` 關閉後就不會送出任何東西。
 
 - **什麼時候送**：目前只有 session 的第一個請求會送出（之後逐句判斷時，每個新請求都會送）
 - **送出什麼**：這一句請求（最多 2000 字），以及最近 3 輪對話的文字（每則最多 500 字，只保留結尾）
-- **不送什麼**：檔案內容、工具呼叫與工具輸出、subagent 的請求
-- **本機紀錄**：`/somm log` 的紀錄只存檔位、Jev 的機率、延遲與 cache 讀寫量，不存對話內容
+- **送出前遮蔽**：常見的密鑰格式會換成 `[REDACTED]`，包括 `sk-`、`AKIA`、`ghp_`、`xoxb-`／`xoxp-`、`AIza`、`Bearer`、`password=`、JWT、私鑰區塊，以及 32 字以上的十六進位字串
+- **不送什麼**：檔案內容、工具呼叫與工具輸出、subagent 的請求，以及用 `/somm off --project` 停用的專案
+- **本機紀錄**：`/somm log` 的紀錄存檔位、Jev 的機率、延遲、cache 讀寫量，以及 prompt 的前 40 字（遮蔽後）；停用的專案不存 prompt
 - **API key**：存在 macOS Keychain（`/plugin configure`），或從環境變數 `TYPESAFE_API_KEY` 讀取
-
-送出前遮蔽密鑰、依專案停用等功能還在規劃中。
 
 ## 參與開發
 
