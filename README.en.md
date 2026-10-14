@@ -80,6 +80,8 @@ Off by default.
 | `/somm status` | Show on/off, whether the API key is set, and this session's rung |
 | `/somm log [n]` | The last n routing records: chosen rung, Jev's probabilities, cache reads and writes |
 
+When on, the status line under the prompt shows the model that actually answered, for example `🍷 實際模型 haiku·medium（預設 opus）` ("actual model … (default opus)"). The part in parentheses is the session's own model and appears only when sommelier replaced it.
+
 If another plugin already uses `/somm`, the command falls back to `/sommelier`.
 
 **sommelier leaves the model unchanged when:**

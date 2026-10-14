@@ -55,7 +55,12 @@ function setup(on, opts: { enabled?: boolean; key?: string | null; jev?: (body: 
   })
   on('turn.start', ($, e) => ({ turnId: e.turnId }))
   on('turn.complete', () => ({ text: '' }))
-  return { clock, saved, fetches, sent }
+  const statuses: (string | undefined)[] = []
+  on('ui.status', ($, e) => {
+    statuses.push(e.text)
+    return { value: undefined }
+  })
+  return { clock, saved, fetches, sent, statuses }
 }
 
 async function drain(stream) {
@@ -186,4 +191,27 @@ test('/somm on and off toggle routing', async ($, on) => {
   expect(h.saved.get('somm:enabled')).toBe(true)
   await $.command.run({ command: 'somm', args: 'off' })
   expect(h.saved.get('somm:enabled')).toBe(false)
+})
+
+test('the status line shows the model that answered and the session model it replaced', async ($, on) => {
+  const h = setup(on, { enabled: true })
+  await $.turn.start({ text: 'CURRENT', turnId: 't1' })
+  await step($, 't1', 0)
+  expect(h.statuses.at(-1)).toBe('🍷 實際模型 haiku·medium（預設 opus）')
+})
+
+test('the status line has no preset note when Jev fails and the session model answers', async ($, on) => {
+  const h = setup(on, { enabled: true, jev: () => ({ status: 429, ok: false, headers: {}, text: '' }) })
+  await $.turn.start({ text: 'CURRENT', turnId: 't1' })
+  await step($, 't1', 0)
+  expect(h.statuses.at(-1)).toBe('🍷 實際模型 opus·medium')
+})
+
+test('the status line stays empty while off and clears on /somm off', async ($, on) => {
+  const h = setup(on)
+  await $.turn.start({ text: 'CURRENT', turnId: 't1' })
+  await step($, 't1', 0)
+  expect(h.statuses.filter((s) => s !== undefined).length).toBe(0)
+  await $.command.run({ command: 'somm', args: 'off' })
+  expect(h.statuses.at(-1)).toBe(undefined)
 })

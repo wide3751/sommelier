@@ -100,6 +100,12 @@ async function decideTurn($, e) {
   return { rung: null, reason: 'no_judgement' }
 }
 
+// The status line under the prompt: the model that actually answered the last
+// main step, and the session's own model when sommelier replaced it.
+function statusText(answered, effort, preset) {
+  return '🍷 實際模型 ' + answered + (effort ? '·' + effort : '') + (answered !== preset ? '（預設 ' + preset + '）' : '')
+}
+
 function spinnerText(decision) {
   if (decision.reason === 'off') return ''
   if (!decision.rung) return 'session · ' + (decision.reason.startsWith('jev_failed') ? 'Jev 失敗' : REASON_LABEL[decision.reason] ?? decision.reason)
@@ -139,6 +145,7 @@ async function runCommand($, e) {
     await $.store.set(ENABLED_KEY, false)
     lastShown = ''
     $.ui.invalidate('ui.render')
+    $.ui.status(undefined)
     return { text: 'sommelier 已關閉：沿用 session 的模型與 effort。' }
   }
   if (sub === 'log') {
@@ -209,6 +216,8 @@ export function register(on, options) {
       t.cacheWrite += u.cache_creation_input_tokens ?? 0
       t.answeredModel = shortModel(u.model)
     }
+    if (t.decision.reason === 'off') $.ui.status(undefined)
+    else $.ui.status(statusText(shortModel(u && u.model ? u.model : out.model), out.effort, shortModel(e.model)))
     return result
   })
 

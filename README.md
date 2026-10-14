@@ -80,6 +80,8 @@ printf '{"typesafe_api_key":"%s"}' "$TYPESAFE_API_KEY" | claude plugin configure
 | `/somm status` | 顯示開關、API key 是否設定、本 session 的檔位 |
 | `/somm log [n]` | 最近 n 筆分派紀錄：選了哪個檔位、Jev 的機率、cache 讀寫量 |
 
+開啟後，prompt 下方的狀態列會顯示實際回答的模型，例如 `🍷 實際模型 haiku·medium（預設 opus）`。括號裡是 session 自己設定的模型，只有被 sommelier 換掉時才會出現。
+
 `/somm` 如果被其他 plugin 占用，會自動改用 `/sommelier`。
 
 **以下情況 sommelier 不會改動模型：**
