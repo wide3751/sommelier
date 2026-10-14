@@ -20,8 +20,99 @@ export const DEFAULT_LADDER = [
 // downgrade has to pay itself back in, and the longest conversation haiku takes.
 export const BALANCED = { tOpus: 0.35, tSonnet: 0.35, tNew: 0.7, tRisk: 0.5, payback: 3, haikuMaxCtx: 30000 }
 
+export const PROFILES = {
+  saver: { tOpus: 0.5, tSonnet: 0.5, tNew: 0.6, tRisk: 0.5, payback: 5, haikuMaxCtx: 40000 },
+  balanced: BALANCED,
+  quality: { tOpus: 0.25, tSonnet: 0.2, tNew: 0.8, tRisk: 0.4, payback: 2, haikuMaxCtx: 15000 },
+}
+export const PROFILE_NAMES = { saver: '省額度', balanced: '平衡', quality: '品質優先' }
+
 const MODEL_ORDER = ['haiku', 'sonnet', 'opus']
 const EFFORT_ORDER = ['low', 'medium', 'high', 'xhigh', 'max']
+
+// 日常設定 (docs/spec.md「參數三層」), as stored under somm:config. On/off
+// lives in its own key. spinner is on/off and notify important/off since
+// ticket 12 dropped the finer modes.
+export const DEFAULT_SETTINGS = {
+  base: DEFAULT_BASE, profile: 'balanced', allowed: { min: 'haiku', max: 'opus' }, spinner: 'on', notify: 'important',
+}
+
+// What the routing functions read: thresholds, base, allowed range and ladder.
+export function routingConfig(settings = DEFAULT_SETTINGS) {
+  const s = { ...DEFAULT_SETTINGS, ...settings }
+  return { thresholds: PROFILES[s.profile] ?? BALANCED, base: s.base, allowed: s.allowed, ladder: DEFAULT_LADDER }
+}
+
+const DEFAULT_CONFIG = routingConfig()
+
+// Keeps a rung inside the allowed models; effort stays as it was.
+export function clampRung(rung, allowed) {
+  if (!rung || !allowed) return rung
+  const i = MODEL_ORDER.indexOf(rung.model)
+  if (i < MODEL_ORDER.indexOf(allowed.min)) return { model: allowed.min, effort: 'medium' }
+  if (i > MODEL_ORDER.indexOf(allowed.max)) return { ...rung, model: allowed.max }
+  return rung
+}
+
+function parseRung(value) {
+  const m = /^(haiku|sonnet|opus)(?:[\s·:._-]+(medium|high))?$/i.exec(value.trim())
+  return m ? { model: m[1].toLowerCase(), effort: (m[2] ?? 'medium').toLowerCase() } : null
+}
+
+function parseRange(value) {
+  const m = /^(haiku|sonnet|opus)\s*[-~～]\s*(haiku|sonnet|opus)$/i.exec(value.trim())
+  if (!m) return null
+  const [min, max] = [m[1].toLowerCase(), m[2].toLowerCase()]
+  return MODEL_ORDER.indexOf(min) <= MODEL_ORDER.indexOf(max) ? { min, max } : null
+}
+
+function inRange(model, allowed) {
+  const i = MODEL_ORDER.indexOf(model)
+  return i >= MODEL_ORDER.indexOf(allowed.min) && i <= MODEL_ORDER.indexOf(allowed.max)
+}
+
+// One /somm config change: the new settings, or why the value is refused.
+export function applySetting(settings, name, value) {
+  const s = { ...DEFAULT_SETTINGS, ...settings }
+  const v = String(value ?? '').trim()
+  if (name === 'base') {
+    const base = parseRung(v)
+    if (!base) return { error: 'base 要是 haiku、sonnet 或 opus，可加 medium／high，例如 opus:high' }
+    if (!inRange(base.model, s.allowed)) return { error: 'base 要在 allowed（' + s.allowed.min + '～' + s.allowed.max + '）範圍內' }
+    return { settings: { ...s, base } }
+  }
+  if (name === 'profile') {
+    const key = Object.keys(PROFILES).find((k) => k === v.toLowerCase() || PROFILE_NAMES[k] === v)
+    if (!key) return { error: 'profile 要是 saver（省額度）、balanced（平衡）或 quality（品質優先）' }
+    return { settings: { ...s, profile: key } }
+  }
+  if (name === 'allowed') {
+    const allowed = parseRange(v)
+    if (!allowed) return { error: 'allowed 要寫成「最低-最高」，例如 haiku-opus、sonnet-opus' }
+    if (!inRange(s.base.model, allowed)) return { error: '目前的 base（' + s.base.model + '）不在這個範圍內，請先改 base' }
+    return { settings: { ...s, allowed } }
+  }
+  if (name === 'spinner') {
+    if (v !== 'on' && v !== 'off') return { error: 'spinner 要是 on 或 off' }
+    return { settings: { ...s, spinner: v } }
+  }
+  if (name === 'notify') {
+    if (v !== 'important' && v !== 'off') return { error: 'notify 要是 important 或 off' }
+    return { settings: { ...s, notify: v } }
+  }
+  return { error: '沒有這個設定：' + name + '。可用 enabled、base、profile、allowed、spinner、notify' }
+}
+
+export function describeSettings(settings) {
+  const s = { ...DEFAULT_SETTINGS, ...settings }
+  return [
+    'base ' + s.base.model + '·' + s.base.effort,
+    'profile ' + s.profile + '（' + PROFILE_NAMES[s.profile] + '）',
+    'allowed ' + s.allowed.min + '-' + s.allowed.max,
+    'spinner ' + s.spinner,
+    'notify ' + s.notify,
+  ]
+}
 
 // Rungs order by model, then effort: haiku·medium < sonnet·medium < opus·medium < opus·high.
 export function compareRung(a, b) {
@@ -62,7 +153,7 @@ function atLeast(rung, floor) {
 // answers: the `answers` object of a Jev response.
 // Returns the target rung, the depth level it came from, and whether
 // high_risk raised it to at least base (route adds high effort for this turn only).
-export function targetRung(answers, cfg = {}) {
+export function targetRung(answers, cfg = DEFAULT_CONFIG) {
   const t = { ...BALANCED, ...cfg.thresholds }
   const ladder = cfg.ladder ?? DEFAULT_LADDER
   const base = cfg.base ?? DEFAULT_BASE
@@ -80,6 +171,7 @@ export function targetRung(answers, cfg = {}) {
   let rung = { ...rungAt(level, ladder, base) }
   const risky = (answers.high_risk?.noul ?? 0) >= t.tRisk
   if (risky) rung = atLeast(rung, base)
+  rung = clampRung(rung, cfg.allowed)
   return { rung, level, highRisk: risky, newTask: answers.new_task?.noul ?? null }
 }
 
@@ -199,9 +291,12 @@ export function switchCost(from, to, contextTokens, cold, turn = DEFAULT_TURN, t
   return { pays: extra <= savings, extra, savings }
 }
 
-// Haiku is kept to short conversations; a longer one moves to sonnet.
-export function qualityGuard(rung, contextTokens, cfg = BALANCED) {
-  return rung && rung.model === 'haiku' && (contextTokens ?? 0) > cfg.haikuMaxCtx ? { model: 'sonnet', effort: 'medium' } : null
+// Haiku is kept to short conversations; a longer one moves to sonnet, unless
+// sonnet is not allowed.
+export function qualityGuard(rung, contextTokens, cfg = DEFAULT_CONFIG) {
+  const max = cfg.thresholds?.haikuMaxCtx ?? BALANCED.haikuMaxCtx
+  if (cfg.allowed && cfg.allowed.max === 'haiku') return null
+  return rung && rung.model === 'haiku' && (contextTokens ?? 0) > max ? { model: 'sonnet', effort: 'medium' } : null
 }
 
 // 覆寫 (docs/spec.md「分派決策」6): `somm:opus`, `somm:sonnet` or `somm:haiku`
@@ -223,8 +318,8 @@ export function rewriteCost(model, cold, ttl = '1h') {
 // A turn that asked for deep thought goes to L3 without asking Jev. It can
 // only move up, so there is nothing to weigh: an upgrade that sticks like any
 // other, or the current rung when that is already as high.
-export function routeDeepThought(s, ladder = DEFAULT_LADDER, base = DEFAULT_BASE) {
-  const target = { ...rungAt(3, ladder, base) }
+export function routeDeepThought(s, cfg = DEFAULT_CONFIG) {
+  const target = clampRung({ ...rungAt(3, cfg.ladder ?? DEFAULT_LADDER, cfg.base ?? DEFAULT_BASE) }, cfg.allowed)
   const from = s.current ?? s.session
   const next = compareRung(target, from) > 0 ? target : s.current
   return { rung: next ?? from, current: next, reason: 'ultrathink', level: 3 }
@@ -237,10 +332,12 @@ export function routeDeepThought(s, ladder = DEFAULT_LADDER, base = DEFAULT_BASE
 // s.turn: what the switch cost is estimated from.
 // Returns the rung for this turn (null: leave the request alone), the new
 // current rung and why.
-export function route(answers, s) {
-  const d = targetRung(answers)
+// cfg: routingConfig() of the user's settings.
+export function route(answers, s, cfg = DEFAULT_CONFIG) {
+  const t = { ...BALANCED, ...cfg.thresholds }
+  const d = targetRung(answers, cfg)
   const from = s.current ?? s.session
-  const newTopic = s.firstTurn || (d.newTask ?? 0) >= BALANCED.tNew
+  const newTopic = s.firstTurn || (d.newTask ?? 0) >= t.tNew
   const ctx = s.contextTokens ?? 0
   let next = s.current
   let reason
@@ -252,17 +349,17 @@ export function route(answers, s) {
   } else if (sameRung(target, from) || !newTopic) {
     reason = 'hold'
   } else {
-    if (qualityGuard(target, ctx)) target = qualityGuard(target, ctx)
+    if (qualityGuard(target, ctx, cfg)) target = qualityGuard(target, ctx, cfg)
     if (compareRung(target, from) >= 0) {
       reason = 'hold'
     } else {
       const cold = coldTokens(s.ledger[target.model], ctx, s.now, s.messageCount, s.ttl)
-      cost = { cold, target: target.model, ...switchCost(from.model, target.model, ctx, cold, s.turn, s.ttl) }
+      cost = { cold, target: target.model, ...switchCost(from.model, target.model, ctx, cold, s.turn, s.ttl, t.payback) }
       reason = cost.pays ? 'downgrade' : 'cost_blocked'
       if (cost.pays) next = target
     }
   }
-  const guard = qualityGuard(next, ctx)
+  const guard = qualityGuard(next, ctx, cfg)
   if (guard) {
     reason = 'quality_guard'
     next = guard

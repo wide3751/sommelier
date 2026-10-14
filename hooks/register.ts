@@ -16,13 +16,14 @@
 // redact.ts.
 
 import { JEV } from './questions.ts'
-import { BALANCED, DEFAULT_TURN, USER_ORIGINS, asksDeepThought, cacheTtl, coldTokens, isShortReply, isSlashCommand, isSupportedModel, ledgerEntry, markCold, modelId, modelLabel, parseOverride, qualityGuard, rewriteCost, route, routeDeepThought, shortModel } from './decide.ts'
+import { DEFAULT_SETTINGS, DEFAULT_TURN, USER_ORIGINS, applySetting, asksDeepThought, cacheTtl, coldTokens, describeSettings, isShortReply, isSlashCommand, isSupportedModel, ledgerEntry, markCold, modelId, modelLabel, parseOverride, qualityGuard, rewriteCost, route, routeDeepThought, routingConfig, shortModel } from './decide.ts'
 import { buildJevState } from './jevState.ts'
 import { redact } from './redact.ts'
 
 const COMMAND = 'somm'
 const FALLBACK_COMMAND = 'sommelier'
 const ENABLED_KEY = 'somm:enabled'
+const CONFIG_KEY = 'somm:config'
 const CONSENT_KEY = 'somm:consent'
 const PROJECT_OFF_PREFIX = 'somm:project-off:'
 const PROMPT_SUMMARY_CHARS = 40
@@ -45,6 +46,10 @@ const REASON_LABEL = {
 const EVENT_CAP = 20
 
 let configKey = ''
+// 日常設定 as last read from the store; every judged turn reads them again,
+// so a change from /somm config (here or in another session) applies at once.
+let settings = DEFAULT_SETTINGS
+let cfg = routingConfig(settings)
 // Jev requests started at turn.start, keyed by turnId so a queued prompt never
 // picks up another turn's judgement.
 const pending = new Map()
@@ -106,6 +111,17 @@ function passReason(model) {
   if (manual) return 'manual'
   if (fallback) return 'fallback'
   return null
+}
+
+async function loadSettings($) {
+  settings = { ...DEFAULT_SETTINGS, ...((await $.store.get(CONFIG_KEY)) ?? {}) }
+  cfg = routingConfig(settings)
+  return settings
+}
+
+// Toasts the notify setting governs: off silences them.
+function notify($, text) {
+  if (settings.notify !== 'off') $.ui.toast(text)
 }
 
 async function isEnabled($) {
@@ -201,7 +217,7 @@ async function waitCapped($, promise) {
 // moved to sonnet once haiku's conversation has grown too long.
 function keep(reason, contextTokens, extra = {}) {
   // An override holds even past haiku's length (docs/spec.md「分派決策」11).
-  const guard = locked ? null : qualityGuard(currentRung, contextTokens)
+  const guard = locked ? null : qualityGuard(currentRung, contextTokens, cfg)
   if (guard) {
     currentRung = guard
     return { rung: guard, reason: 'quality_guard', ...extra }
@@ -214,6 +230,7 @@ async function decideTurn($, e) {
   if (why) return { rung: null, reason: why }
   if (!(await isEnabled($))) return { rung: null, reason: 'off' }
   if (await projectOff($)) return { rung: null, reason: 'project_off' }
+  await loadSettings($)
   const pass = passReason(e.model)
   if (pass) {
     // The session model answers now, so that is where the cache is.
@@ -230,7 +247,7 @@ async function decideTurn($, e) {
     return override($, e, asked, contextTokens)
   }
   if (skipped.get(e.turnId) === 'ultrathink') {
-    const r = routeDeepThought({ current: currentRung, session: { model: shortModel(e.model), effort: e.effort ?? 'medium' } })
+    const r = routeDeepThought({ current: currentRung, session: { model: shortModel(e.model), effort: e.effort ?? 'medium' } }, cfg)
     // It stands for a judgement: the next sentence is not a session's first.
     judgedTurns += 1
     currentRung = r.current
@@ -252,7 +269,7 @@ async function decideTurn($, e) {
   if (locked) {
     // Held until a new topic; then it is judged like any other sentence.
     const newTask = j.answers.new_task ? j.answers.new_task.noul : null
-    if ((newTask ?? 0) < BALANCED.tNew) return { rung: locked, reason: 'override_locked', newTopic: false, newTask, contextTokens, ...jev }
+    if ((newTask ?? 0) < cfg.thresholds.tNew) return { rung: locked, reason: 'override_locked', newTopic: false, newTask, contextTokens, ...jev }
     locked = null
   }
   const r = route(j.answers, {
@@ -261,11 +278,12 @@ async function decideTurn($, e) {
     firstTurn: judgedTurns === 0,
     ledger, contextTokens, now: await $.clock.now(), messageCount: e.messageCount, ttl: lastTtl,
     turn: seen.turns ? { output: seen.output / seen.turns, fresh: seen.fresh / seen.turns } : DEFAULT_TURN,
-  })
+  }, cfg)
   judgedTurns += 1
   currentRung = r.current
   if (r.reason === 'cost_blocked') {
-    $.ui.toast(
+    notify(
+      $,
       'sommelier：換到 ' + r.cost.target + ' 要重寫 ' + Math.round(r.cost.cold / 1000) + 'k tokens 的 cache（約 $' +
         r.cost.extra.toFixed(2) + '），預估省回 $' + r.cost.savings.toFixed(2) + '，這一句沿用 ' + (currentRung ? currentRung.model : shortModel(e.model)),
     )
@@ -288,7 +306,8 @@ async function override($, e, rung, contextTokens) {
   if (rung.model !== from.model) {
     cold = coldTokens(ledger[rung.model], contextTokens, await $.clock.now(), e.messageCount, lastTtl)
     if (cold >= OVERRIDE_TOAST_TOKENS) {
-      $.ui.toast(
+      notify(
+        $,
         'sommelier：覆寫為 ' + rung.model + '，要重寫 ' + Math.round(cold / 1000) + 'k tokens 的 cache（約 $' +
           rewriteCost(rung.model, cold, lastTtl).toFixed(2) + '）',
       )
@@ -338,7 +357,8 @@ function formatRecord(r) {
 }
 
 async function runCommand($, e) {
-  const [sub, arg] = (e.args || '').trim().split(/\s+/)
+  const words = (e.args || '').trim().split(/\s+/)
+  const [sub, arg] = words
   if (arg === '--project' && (sub === 'on' || sub === 'off')) {
     const root = await $.session.root()
     if (sub === 'off') await $.store.set(PROJECT_OFF_PREFIX + root, true)
@@ -356,6 +376,7 @@ async function runCommand($, e) {
     $.ui.status(undefined)
     return { text: 'sommelier 已關閉：沿用 session 的模型與 effort。' }
   }
+  if (sub === 'config') return configCommand($, arg, words.slice(2).join(' '))
   if (sub === 'log') {
     const recs = await recentRecords($, Number(arg) || 10)
     return { text: recs.length ? recs.map(formatRecord).join('\n') : '（還沒有分派紀錄）' }
@@ -372,7 +393,26 @@ async function runCommand($, e) {
   if (sub === 'events') {
     return { text: events.length ? events.join('\n') : '（還沒有觀察到事件）' }
   }
-  return { text: '用法：/somm on | off [--project] | status | log [n] | events' }
+  return { text: '用法：/somm on | off [--project] | status | log [n] | events | config [名稱 值]' }
+}
+
+// /somm config: no name lists the settings; a name and value changes one.
+async function configCommand($, name, value) {
+  await loadSettings($)
+  if (!name) {
+    const on = (await isEnabled($)) ? 'on' : 'off'
+    return { text: ['enabled ' + on, ...describeSettings(settings)].join('\n') }
+  }
+  if (name === 'enabled') {
+    if (value !== 'on' && value !== 'off') return { text: 'enabled 要是 on 或 off' }
+    return runCommand($, { args: value })
+  }
+  const r = applySetting(settings, name, value)
+  if (r.error) return { text: r.error }
+  await $.store.set(CONFIG_KEY, r.settings)
+  await loadSettings($)
+  if (name === 'spinner') $.ui.invalidate('ui.render')
+  return { text: '已設定：' + describeSettings(settings).find((line) => line.startsWith(name + ' ')) }
 }
 
 export function register(on, options) {
@@ -382,16 +422,16 @@ export function register(on, options) {
     try {
       await $.command.register({
         name: COMMAND,
-        description: 'sommelier：依任務挑模型與 effort（on | off | status | log | events）',
-        argumentHint: '[on | off | status | log [n] | events]',
+        description: 'sommelier：依任務挑模型與 effort（on | off | status | log | events | config）',
+        argumentHint: '[on | off | status | log [n] | events | config [名稱 值]]',
         immediate: true,
       })
     } catch {
       // /somm is taken: register the long name instead and say so.
       await $.command.register({
         name: FALLBACK_COMMAND,
-        description: 'sommelier：依任務挑模型與 effort（on | off | status | log | events）',
-        argumentHint: '[on | off | status | log [n] | events]',
+        description: 'sommelier：依任務挑模型與 effort（on | off | status | log | events | config）',
+        argumentHint: '[on | off | status | log [n] | events | config [名稱 值]]',
         immediate: true,
       })
       $.ui.toast('/somm 已被占用，請改用 /sommelier')
@@ -544,7 +584,7 @@ export function register(on, options) {
   })
 
   on('ui.render', { component: 'Spinner' }, async ($, e, next) => {
-    if (!lastShown) return next(e)
+    if (!lastShown || settings.spinner === 'off') return next(e)
     return next({ ...e, props: { ...e.props, suffix: ' · 🍷 ' + lastShown } })
   })
 }

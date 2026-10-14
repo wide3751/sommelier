@@ -10,6 +10,13 @@ cd ~/Projects/sommelier && claude plugin test
 
 正式安裝的版本會依 `plugin.json` 的 `version` 快取一份副本。改了程式碼後要先把版本號加一，再重新安裝，改動才會生效。開發時建議用 `--plugin-dir`。
 
+**版本號規則**（`.claude-plugin/plugin.json`）：
+
+- 每個會改變 mod 行為的 PR 升第三位（patch），例如 0.6.0 → 0.6.1
+- 一組 issue 完成，或有不相容的改動（例如設定的儲存格式）時才升第二位（minor），升之前先跟維護者確認
+- 只改文件、測試或 CI 的 PR 不升版本
+- 1.0.0 等一週使用與校準（#14）完成後再決定
+
 **離線評測**：不經過 Claude Code，直接呼叫 Jev，量測判斷品質與延遲：
 
 ```bash
