@@ -35,10 +35,58 @@ Restart Claude Code, then:
 
 Run `/somm off` to stop. See [Install](#install) and [Usage](#usage) for details.
 
+## Install with an AI agent
+
+Get a TypeSafe API key ready first. Don't hand the key to the agent; set it as an environment variable yourself:
+
+1. Create an API key in the [TypeSafe console](https://console.typesafe.ai/keys)
+2. Run this in a terminal, replacing `your-api-key` with your key, to add it to `~/.zshrc`:
+
+   ```bash
+   echo 'export TYPESAFE_API_KEY="your-api-key"' >> ~/.zshrc
+   ```
+
+3. Restart your terminal and Claude Code so they pick up the new variable
+
+Then paste this to Claude Code or any other coding agent:
+
+> Install sommelier by following the "Install with an AI agent" section of the README at https://github.com/wide3751/sommelier
+
+### Steps for the agent
+
+Run these in order. If any step fails, stop and report the error to the user:
+
+1. Run `claude --version` and check the version is ≥ 2.1.287. If it is older, stop and ask the user to update Claude Code first.
+2. Install the plugin:
+
+   ```bash
+   claude plugin marketplace add wide3751/sommelier
+   claude plugin install sommelier@sommelier
+   ```
+
+3. Check that the API key exists, **without printing its value**:
+
+   ```bash
+   [ -n "$TYPESAFE_API_KEY" ] && echo set || echo missing
+   ```
+
+   If it prints `missing`, stop and ask the user to set `TYPESAFE_API_KEY` themselves, or to run `/plugin configure sommelier@sommelier` in a terminal session. Do not ask the user for the key, and do not write it to any file.
+4. Save the key to the plugin config (stored in the macOS Keychain):
+
+   ```bash
+   printf '{"typesafe_api_key":"%s"}' "$TYPESAFE_API_KEY" | claude plugin configure sommelier@sommelier --values-stdin
+   ```
+
+5. Run `claude plugin list` and check that `sommelier@sommelier` shows Status `enabled`.
+6. The user has to do the rest inside Claude Code; the agent can't do it from a shell. Tell the user to:
+   1. Restart Claude Code
+   2. Run `/somm status` and check it says the API key is set
+   3. Run `/somm on` to turn it on
+
 ## Requirements
 
 - Claude Code **v2.1.287 or later** (terminal), or **v2.1.286 or later** bundled in the Desktop app (type `/status` in the Code tab to check)
-- A TypeSafe API key
+- A TypeSafe API key (create one in the [TypeSafe console](https://console.typesafe.ai/keys))
 
 ## Install
 
