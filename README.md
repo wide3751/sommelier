@@ -24,8 +24,13 @@
 ```bash
 claude plugin marketplace add wide3751/sommelier
 claude plugin install sommelier@sommelier
+# 執行下一行後貼上你的 TypeSafe API key，按 Enter（畫面不會顯示 key）
+read -rs TYPESAFE_API_KEY
+# 把 key 存進 macOS Keychain
 printf '{"typesafe_api_key":"%s"}' "$TYPESAFE_API_KEY" | claude plugin configure sommelier@sommelier --values-stdin
 ```
+
+API key 到 [TypeSafe console](https://console.typesafe.ai/keys) 建立。如果已經在 `~/.zshrc` 設好 `TYPESAFE_API_KEY`，可以跳過 `read` 那行。
 
 重新啟動 Claude Code 就會自動開啟，不用另外設定：
 
@@ -80,10 +85,13 @@ claude plugin install sommelier@sommelier
 2. 設定 TypeSafe API key（存進 macOS Keychain）。終端機版可以在 session 裡執行 `/plugin configure sommelier@sommelier`；Desktop app 的 Code tab 不會跳出輸入框，請改在終端機執行：
 
 ```bash
+# 執行下一行後貼上你的 TypeSafe API key，按 Enter（畫面不會顯示 key）
+read -rs TYPESAFE_API_KEY
+# 把 key 存進 macOS Keychain
 printf '{"typesafe_api_key":"%s"}' "$TYPESAFE_API_KEY" | claude plugin configure sommelier@sommelier --values-stdin
 ```
 
-   執行前要確認目前的 shell 讀得到 `TYPESAFE_API_KEY`（例如新開一個終端機視窗）。也可以只設定環境變數 `TYPESAFE_API_KEY` 當作備援，但從 Dock 開啟的 Desktop app 讀不到 `~/.zshrc`。
+   key 不用寫進指令裡：`read` 會等你貼上，存在這個終端機的 `TYPESAFE_API_KEY` 變數，下一行再把它存進 Keychain，所以 key 不會留在 shell 歷史紀錄。已經在 `~/.zshrc` 設好 `TYPESAFE_API_KEY` 的話，可以跳過 `read` 那行，但要確認目前的 shell 讀得到它（例如新開一個終端機視窗）。也可以只設定環境變數 `TYPESAFE_API_KEY` 當作備援，但從 Dock 開啟的 Desktop app 讀不到 `~/.zshrc`。
 
 3. 重新啟動 Claude Code，輸入 `/somm status`，確認顯示「API key 已設定」。
 
