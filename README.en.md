@@ -139,7 +139,7 @@ On by default after install; there is no need to run `/somm on`. Before a reques
 | `profile` | balanced | `saver` (uses opus less, calls a new topic sooner), `balanced`, `quality` (sonnet and opus sooner, haiku only for conversations under 15k) |
 | `allowed` | haiku-opus | The models sommelier may pick, e.g. `sonnet-opus` never uses haiku. A `somm:` override is not limited |
 | `spinner` | on | Whether the spinner shows this turn's routing while Claude works |
-| `notify` | important | Important notices such as a switch that rewrites the cache; `off` shows none |
+| `notify` | important | Important notices: an override or downgrade that rewrites the cache, Jev failing 3 times in a row. At most one per turn; several within 10 seconds show only the newest once the 10 seconds are up. `off` shows none |
 
 When on, the status line under the prompt shows the model, its version and the effort that actually answered, for example `🍷 haiku 5.5·medium`. The model Claude Code shows next to it is the session's own.
 
