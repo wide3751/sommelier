@@ -1,0 +1,32 @@
+name: gitleaks
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    env:
+      GITLEAKS_VERSION: 8.30.1
+      # 官方 checksums.txt 中 linux_x64 壓縮檔的 SHA-256，升版時一起更新
+      GITLEAKS_SHA256: 551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # 掃描完整 git 歷史
+
+      - name: 安裝 gitleaks
+        run: |
+          tarball="gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          curl -sSfL -o "$tarball" "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/${tarball}"
+          echo "${GITLEAKS_SHA256}  ${tarball}" | sha256sum -c -
+          tar -xzf "$tarball" gitleaks
+          sudo install gitleaks /usr/local/bin/gitleaks
+
+      - name: 掃描 git 歷史
+        run: gitleaks git --no-banner --redact -v .
