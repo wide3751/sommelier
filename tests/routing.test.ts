@@ -602,3 +602,13 @@ test('a record keeps at most 40 characters of the prompt, redacted', async ($, o
   expect(rec.prompt).not.toContain('AKIA')
   expect(rec.prompt).toContain('[REDACTED]')
 })
+
+test('/somm log shows the model that answered and the session it came from', async ($, on) => {
+  setup(on, { enabled: true })
+  await $.turn.start({ text: 'CURRENT REQUEST', turnId: 't1' })
+  await step($, 't1', 0)
+  await complete($, 't1')
+  const log = await $.command.run({ command: 'somm', args: 'log 1' })
+  expect(log.text).toContain('haiku·medium · 回答 haiku')
+  expect(log.text).toMatch(/\[sess1\]$/)
+})

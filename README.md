@@ -141,12 +141,12 @@ opus·high L3 · 升級
 sommelier 開啟｜API key 已設定｜本 session 檔位 sonnet·medium
 ```
 
-`/somm log 3`：P 是 Jev 判斷為 L0／L1／L2／L3 的機率；`session` 表示這一輪用 session 自己的模型：
+`/somm log 3`：P 是 Jev 判斷為 L0／L1／L2／L3 的機率；`session` 表示這一輪用 session 自己的模型；「回答」是實際回答的模型，方括號是 session 的前六碼：
 
 ```
-sonnet·medium · downgrade P=0.05/0.90/0.05/0.00 jev 820ms cache read 0 write 18342
-sonnet·medium · continuation cache read 18342 write 1204
-opus·high · upgrade P=0.02/0.08/0.20/0.70 jev 410ms cache read 0 write 21530
+sonnet·medium · 回答 sonnet · downgrade P=0.05/0.90/0.05/0.00 jev 820ms cache read 0 write 18342 [a1b2c3]
+sonnet·medium · 回答 sonnet · continuation cache read 18342 write 1204 [a1b2c3]
+opus·high · 回答 opus · upgrade P=0.02/0.08/0.20/0.70 jev 410ms cache read 0 write 21530 [a1b2c3]
 ```
 
 ## 限制
