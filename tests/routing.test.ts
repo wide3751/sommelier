@@ -307,6 +307,53 @@ test('secrets are redacted before anything is sent to Jev', async ($, on) => {
   expect(sent).toContain('[REDACTED]')
 })
 
+// Every built-in format, plus the shapes that slipped through before:
+// prefixed keys (DB_PASSWORD), quoted values, PGP key blocks and 0x-prefixed hex.
+const SECRETS: [string, string, string][] = [
+  ['sk-', 'sk-proj-abcdefghijklmnop1234', 'abcdefghijklmnop1234'],
+  ['AKIA', 'AKIAABCDEFGHIJKLMNOP', 'AKIAABCDEFGHIJKLMNOP'],
+  ['private key', '-----BEGIN RSA PRIVATE KEY-----\nMIIEpQIBAAKC\n-----END RSA PRIVATE KEY-----', 'MIIEpQIBAAKC'],
+  ['PGP key block', '-----BEGIN PGP PRIVATE KEY BLOCK-----\nlQOYBGXyz\n-----END PGP PRIVATE KEY BLOCK-----', 'lQOYBGXyz'],
+  ['password=', 'password=hunter2', 'hunter2'],
+  ['prefixed password', 'DB_PASSWORD=hunter3', 'hunter3'],
+  ['quoted password', 'password: "correct horse"', 'horse'],
+  ['JWT', 'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.c2lnbmF0dXJl', 'c2lnbmF0dXJl'],
+  ['Bearer', 'Authorization: Bearer tok.en-value', 'tok.en-value'],
+  ['ghp_', 'ghp_abcdefghijklmnopqrstuvwxyz0123', 'abcdefghijklmnopqrstuvwxyz0123'],
+  ['xoxb-', 'xoxb-1234567890-abcdefghij', '1234567890-abcdefghij'],
+  ['xoxp-', 'xoxp-1234567890-abcdefghij', '1234567890-abcdefghij'],
+  ['AIza', 'AIza' + 'Sy0123456789abcdefghijklmnopqrstu', 'Sy0123456789abcdefghijklmnopqrstu'],
+  ['long hex', 'a1b2c3d4'.repeat(5), 'a1b2c3d4'.repeat(5)],
+  ['0x hex', '0x' + 'deadbeef'.repeat(8), 'deadbeef'.repeat(8)],
+]
+
+for (const [name, secret, leak] of SECRETS) {
+  test(`${name} is redacted in what is sent to Jev`, async ($, on) => {
+    const h = setup(on, {
+      enabled: true,
+      messages: [
+        { role: 'user', text: 'earlier: ' + secret, toolUses: [] },
+        { role: 'assistant', text: 'ok', toolUses: [] },
+      ],
+    })
+    await $.turn.start({ text: 'now: ' + secret, turnId: 't1' })
+    await step($, 't1', 0)
+    const sent = JSON.stringify(h.fetches[0])
+    expect(sent).not.toContain(leak)
+    expect(sent).toContain('[REDACTED]')
+  })
+}
+
+test('ordinary text without secrets is sent unchanged', async ($, on) => {
+  const h = setup(on, { enabled: true })
+  const text = 'reset my password from the settings page'
+  await $.turn.start({ text, turnId: 't1' })
+  await step($, 't1', 0)
+  const sent = JSON.stringify(h.fetches[0])
+  expect(sent).toContain(text)
+  expect(sent).not.toContain('[REDACTED]')
+})
+
 test('the first send asks for consent and agreeing remembers it', async ($, on) => {
   const h = setup(on, { consent: false })
   await $.turn.start({ text: 'CURRENT', turnId: 't1' })
