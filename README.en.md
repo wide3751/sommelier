@@ -1,12 +1,14 @@
 <p align="center">
-  <img src="assets/logo/logo.png" alt="sommelier" width="420">
+  <img src="assets/logo/logo.png" alt="sommelier: automatic model routing plugin for Claude Code" width="420">
 </p>
 
 [中文](README.md)
 
-A Claude Code plugin (mod) that picks the model and effort for each task.
+# sommelier: automatic model routing for Claude Code (a Claude Code mod)
 
-The way a sommelier picks a wine for each dish, sommelier asks [TypeSafe Jev](https://docs.typesafe.ai) three questions about each new request — **how much reasoning it needs**, **whether it starts a new task**, and **whether it is a high-risk operation** — and maps the answer onto a configurable ladder:
+A **Claude Code plugin**, built on **Claude Code mods** (the mods API's `turn.step`), that picks the model and effort for each task automatically. Quick lookups go to **Claude Haiku**, well-specified changes to **Claude Sonnet**, and investigation or design to **Claude Opus**, with **TypeSafe Jev** classifying each request — saving Claude Code usage without giving up quality.
+
+The way a sommelier picks a wine for each dish, sommelier asks [TypeSafe Jev](https://docs.typesafe.ai) (a classification API that returns probabilities) three questions about each new request — **how much reasoning it needs**, **whether it starts a new task**, and **whether it is a high-risk operation** — and maps the answer onto a configurable ladder:
 
 | Reasoning depth | Default rung | Example |
 |---|---|---|

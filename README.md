@@ -1,12 +1,14 @@
 <p align="center">
-  <img src="assets/logo/logo.png" alt="sommelier" width="420">
+  <img src="assets/logo/logo.png" alt="sommelier：Claude Code 自動切換模型的 plugin" width="420">
 </p>
 
 [English](README.en.md)
 
-依任務替 Claude Code 挑選「模型 · effort」的 plugin（mod）。
+# sommelier：Claude Code 自動選模型的 plugin（Claude Code mods）
 
-就像侍酒師依菜色挑酒，sommelier 在你送出每個新請求時，請 [TypeSafe Jev](https://docs.typesafe.ai) 判斷三件事：**需要多深的推理**、**是不是新話題**、**是不是高風險操作**，再對應到一張可調整的階梯表：
+依任務替 Claude Code 自動挑選「模型 · effort」的 plugin，用 **Claude Code mods**（mods API 的 `turn.step`）實作。簡單的請求交給 **Claude Haiku**，明確的實作交給 **Claude Sonnet**，需要調查或設計的交給 **Claude Opus**，用 **TypeSafe Jev** 分類請求，在不犧牲品質的前提下節省 Claude Code 的用量與額度。
+
+就像侍酒師依菜色挑酒，sommelier 在你送出每個新請求時，請 [TypeSafe Jev](https://docs.typesafe.ai)（一個回傳機率的分類 API）判斷三件事：**需要多深的推理**、**是不是新話題**、**是不是高風險操作**，再對應到一張可調整的階梯表：
 
 | 推理深度 | 預設檔位 | 例子 |
 |---|---|---|
