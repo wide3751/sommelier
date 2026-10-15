@@ -302,6 +302,28 @@ test('the cache gauge empties once the cache has expired', async ($, on) => {
   expect(h.statuses.at(-1)).toBe('🍷 opus 5.5·medium ▱▱▱▱▱ 0k')
 })
 
+test('on haiku the cache gauge stays empty but still shows the cached tokens', async ($, on) => {
+  const h = setup(on, { enabled: true, usage: { cache_read_input_tokens: 10000 } })
+  await $.command.run({ command: 'somm', args: 'config allowed haiku-opus' })
+  await $.turn.start({ text: 'CURRENT REQUEST', turnId: 't1' })
+  await step($, 't1', 0)
+  expect(h.sent[0].model).toBe('claude-haiku-5-5')
+  expect(h.statuses.at(-1)).toBe('🍷 haiku 5.5·medium ▱▱▱▱▱ 10k')
+})
+
+test('the status line is still drawn when the session usage cannot be read', async ($, on) => {
+  const h = setup(on, {
+    enabled: true, jev: failing,
+    contextTokens: () => {
+      if (h.sent.length) throw new Error('usage unavailable')
+      return 0
+    },
+  })
+  await $.turn.start({ text: 'CURRENT REQUEST', turnId: 't1' })
+  await step($, 't1', 0)
+  expect(h.statuses.at(-1)).toBe('🍷 opus 5.5·medium ▰▱▱▱▱ 0k')
+})
+
 test('at the lowest allowed model the cache gauge stays empty', async ($, on) => {
   const h = setup(on, { enabled: true })
   await $.command.run({ command: 'somm', args: 'config allowed sonnet-opus' })
@@ -368,7 +390,7 @@ const TYPICAL = { output_tokens: 2000, cache_creation_input_tokens: 3000 }
 const rungs = (h) => h.sent.map((s) => s.model.replace('claude-', '').replace('-5-5', '') + '/' + s.effort)
 
 test('a downgrade that cannot pay back its cache rewrite is blocked for that sentence only', async ($, on) => {
-  const h = setup(on, { enabled: true, contextTokens: 120000, jev: clear })
+  const h = setup(on, { enabled: true, contextTokens: 120000, usage: { cache_read_input_tokens: 120000 }, jev: clear })
   await turn($, 't1', '幫 parseDate 加上時區參數')
   const first = records(h.saved)[0]
   expect(first.reason).toBe('cost_blocked')
@@ -381,7 +403,7 @@ test('a downgrade that cannot pay back its cache rewrite is blocked for that sen
   expect(h.toasts.length).toBe(1)
   await h.clock.advance(10000)
   expect(h.toasts.length).toBe(2)
-  expect(h.statuses.at(-1)).toBe('🍷 opus 5.5·medium ▰▰▰▰▰⚠ 0k')
+  expect(h.statuses.at(-1)).toBe('🍷 opus 5.5·medium ▰▰▰▰▰⚠ 120k')
 })
 
 test('the same downgrade goes ahead while the conversation is short', async ($, on) => {

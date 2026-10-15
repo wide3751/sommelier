@@ -17,7 +17,7 @@
 // redact.ts.
 
 import { JEV, SKILL_QUESTIONS } from './questions.ts'
-import { DEFAULT_SETTINGS, DEFAULT_TURN, TTL_MS, USER_ORIGINS, applySetting, asksDeepThought, cacheGauge, cacheTtl, coldTokens, describeSettings, isShortReply, isSlashCommand, isSupportedModel, ledgerEntry, markCold, modelId, modelLabel, parseOverride, pickSkill, promptSummary, qualityGuard, rewriteCost, route, routeDeepThought, routingConfig, shortModel, skillCandidates, skillHintText, skillLabel, skillQuestions } from './decide.ts'
+import { DEFAULT_SETTINGS, DEFAULT_TURN, USER_ORIGINS, applySetting, asksDeepThought, cacheGauge, cacheTtl, coldTokens, describeSettings, isShortReply, isSlashCommand, isSupportedModel, ledgerEntry, markCold, modelId, modelLabel, parseOverride, pickSkill, promptSummary, qualityGuard, rewriteCost, route, routeDeepThought, routingConfig, shortModel, skillCandidates, skillHintText, skillLabel, skillQuestions, ttlMs } from './decide.ts'
 import { buildJevState } from './jevState.ts'
 import { redact } from './redact.ts'
 
@@ -561,7 +561,12 @@ let statusShown = 0
 // gauge is drawn again, with empty cells.
 async function showStatus($, label, effort, model, messageCount) {
   const shown = ++statusShown
-  const contextTokens = (await $.session.usage()).context.tokens ?? 0
+  let contextTokens = 0
+  try {
+    contextTokens = (await $.session.usage()).context.tokens ?? 0
+  } catch {
+    // Usage unavailable: the gauge falls back to the model's cached tokens.
+  }
   const turn = seen.turns ? { output: seen.output / seen.turns, fresh: seen.fresh / seen.turns } : DEFAULT_TURN
   // Read at draw time, so cache off also keeps a pending expiry redraw plain.
   const gauge = (now) => (settings.cache === 'off' ? '' : cacheGauge(ledger, model, contextTokens, now, messageCount, lastTtl, turn, cfg))
@@ -571,7 +576,7 @@ async function showStatus($, label, effort, model, messageCount) {
 
 async function redrawOnExpiry($, shown, text) {
   try {
-    await $.clock.sleep((TTL_MS[lastTtl] ?? TTL_MS['1h']) + 1)
+    await $.clock.sleep(ttlMs(lastTtl) + 1)
   } catch {
     // The session ended first.
     return
