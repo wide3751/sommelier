@@ -219,6 +219,20 @@ export function shortModel(id) {
   return id
 }
 
+// The prompt as the user wrote it, for the record: harness wrappers are
+// dropped so the first characters say what was asked. A system-reminder is
+// removed whole (an unclosed one runs to the end), an agent message keeps its
+// text behind "[agent] ", and any other tag is stripped but its text is kept.
+export function promptSummary(text) {
+  const out = String(text)
+    .replace(/<system-reminder>[\s\S]*?(?:<\/system-reminder>|$)/gi, ' ')
+    .replace(/<agent-message\b[^>]*>/gi, '[agent] ')
+    .replace(/<\/?[a-z][a-z0-9-]*(?:\s[^>]*)?>/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+  return out
+}
+
 // The model with its version for display: claude-haiku-5-5 (or one with a
 // date suffix) reads as "haiku 5.5". An id of another shape falls back to shortModel.
 export function modelLabel(id) {

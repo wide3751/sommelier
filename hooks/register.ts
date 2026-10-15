@@ -17,7 +17,7 @@
 // redact.ts.
 
 import { JEV, SKILL_QUESTIONS } from './questions.ts'
-import { DEFAULT_SETTINGS, DEFAULT_TURN, USER_ORIGINS, applySetting, asksDeepThought, cacheTtl, coldTokens, describeSettings, isShortReply, isSlashCommand, isSupportedModel, ledgerEntry, markCold, modelId, modelLabel, parseOverride, pickSkill, qualityGuard, rewriteCost, route, routeDeepThought, routingConfig, shortModel, skillCandidates, skillHintText, skillLabel, skillQuestions } from './decide.ts'
+import { DEFAULT_SETTINGS, DEFAULT_TURN, USER_ORIGINS, applySetting, asksDeepThought, cacheTtl, coldTokens, describeSettings, isShortReply, isSlashCommand, isSupportedModel, ledgerEntry, markCold, modelId, modelLabel, parseOverride, pickSkill, promptSummary, qualityGuard, rewriteCost, route, routeDeepThought, routingConfig, shortModel, skillCandidates, skillHintText, skillLabel, skillQuestions } from './decide.ts'
 import { buildJevState } from './jevState.ts'
 import { redact } from './redact.ts'
 
@@ -759,7 +759,7 @@ export function register(on, options) {
     if (!e.agentId && t && t.decision.reason !== 'off') {
       const { decision, skill, skillsUsed, ...usage } = t
       // A stopped project keeps no trace of its prompts.
-      const summary = prompt && decision.reason !== 'project_off' ? redact(prompt).slice(0, PROMPT_SUMMARY_CHARS) : undefined
+      const summary = prompt && decision.reason !== 'project_off' ? redact(promptSummary(prompt)).slice(0, PROMPT_SUMMARY_CHARS) || undefined : undefined
       const skillRec = skill
         ? { skillHint: skill.hint, needsSkill: skill.needs, skillTop: skill.top, skillTopProb: skill.topProb, skillAdopted: skill.hint ? skillsUsed.includes(skill.hint) : undefined }
         : {}
