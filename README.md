@@ -154,6 +154,10 @@ Keychain 只有 macOS 才有；Windows 上 key 由 Claude Code 的 plugin 設定
 
 **cache 量表**：數字是目前模型累積的 cache 量。5 格代表換到 allowed 範圍內下一個較低模型的切換成本（重寫 cache 的費用），佔預估省回額度的多少，每格 20%。格子越滿，換下去越不划算；滿格再加上 `⚠`（例如 `▰▰▰▰▰⚠ 243k`）表示切換成本已經超過省回的額度，sommelier 這時會擋下降級，你自己換也不建議。cache 已過期、或已經是 allowed 內最低的模型時，格子全空。狀態列不能上色，所以用滿格加 `⚠` 當警示。嫌擠可以用 `/somm config cache off` 關掉。
 
+<img src="assets/status-line/status-line.png" alt="狀態列 cache 量表在四種情境下的樣子（示意圖）" width="640">
+
+<sub>示意圖：剛開始的對話、對話變長、不建議轉換模型、已在最低的模型。</sub>
+
 `/somm` 如果被其他 plugin 占用，會自動改用 `/sommelier`。
 
 **自己指定模型（覆寫）**：在 prompt 開頭寫 `somm:opus`、`somm:sonnet` 或 `somm:haiku`（不分大小寫），這一句就用指定的模型（effort medium），不送 Jev。前綴會先拿掉，模型看不到。之後同一個話題都沿用這個模型，直到 Jev 判斷出新話題、`/clear` 或你用 `/model` 換模型為止。只寫前綴、不寫內容時不會送出任何東西，只設定接下來要用的模型。換模型要重寫 cache 時，會跳出提示說明要重寫多少 token、大約多少錢。

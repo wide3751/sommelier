@@ -1,0 +1,67 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>sommelier status line</title>
+<style>
+  :root {
+    --bg: #1b1d22;
+    --panel: #23262d;
+    --border: #4a4f5a;
+    --text: #d7dae0;
+    --dim: #8b919c;
+    --label: #c9a46a;
+    --mono: "SF Mono", Menlo, Monaco, "Cascadia Mono", monospace;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 14px;
+    width: 720px;
+    padding: 22px 26px 8px;
+  }
+  .scene { margin-bottom: 20px; }
+  .label {
+    font-family: -apple-system, "PingFang TC", "Helvetica Neue", sans-serif;
+    font-size: 13px;
+    color: var(--label);
+    margin-bottom: 7px;
+  }
+  .label span { color: var(--dim); margin-left: 8px; }
+  .prompt {
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 7px 12px;
+    color: var(--dim);
+  }
+  .prompt b { color: var(--text); font-weight: normal; margin-right: 8px; }
+  .status { padding: 6px 2px 0; color: var(--dim); white-space: pre; }
+  .status .cells { color: var(--text); font-size: 20px; line-height: 1; letter-spacing: 1px; }
+</style>
+</head>
+<body>
+<script>
+// ?lang=en draws the English captions; the status line itself is the same.
+const en = new URLSearchParams(location.search).get('lang') === 'en'
+const scenes = [
+  ['剛開始的對話', 'cache 還小，換到 sonnet 幾乎不花什麼', 'A fresh conversation', 'little cache; moving to sonnet costs almost nothing',
+    'opus 5.5·medium', '▰▱▱▱▱', '', '18k'],
+  ['對話變長', '換模型的成本約是省回額度的一半多', 'The conversation grows', 'switching costs over half of what it would save',
+    'opus 5.5·medium', '▰▰▰▱▱', '', '96k'],
+  ['不建議轉換模型', '切換成本已超過省回的額度，sommelier 會擋下降級', 'Switching no longer pays', 'the rewrite costs more than it saves; sommelier holds the model',
+    'opus 5.5·medium', '▰▰▰▰▰', '⚠', '210k'],
+  ['已在最低的模型', '沒有更低的模型可換，格子全空', 'Already on the lowest model', 'nothing lower to move to, so the cells stay empty',
+    'haiku 5.5·medium', '▱▱▱▱▱', '', '12k'],
+]
+for (const [zh, zhNote, enLabel, enNote, rung, cells, warn, k] of scenes) {
+  document.write(
+    '<div class="scene"><div class="label">' + (en ? enLabel : zh) + '<span>' + (en ? enNote : zhNote) + '</span></div>' +
+    '<div class="prompt"><b>&gt;</b>' + (en ? 'Type a message…' : '輸入訊息…') + '</div>' +
+    '<div class="status">🍷 ' + rung + ' <span class="cells">' + cells + warn + '</span> ' + k + '</div></div>'
+  )
+}
+</script>
+</body>
+</html>

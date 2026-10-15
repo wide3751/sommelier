@@ -154,6 +154,10 @@ When on, the status line under the prompt shows the model, its version and the e
 
 **Cache gauge**: the number is how much cache the current model has built up. The 5 cells show the switch cost of moving down to the next lower model within `allowed` (the price of rewriting the cache) as a share of the quota that switch is expected to save, 20% per cell. The fuller the cells, the less a switch down pays off; full cells plus `⚠` (for example `▰▰▰▰▰⚠ 243k`) mean the switch costs more than it would save, so sommelier blocks the downgrade and switching yourself is not advised. The cells are empty once the cache has expired, or when you are already on the lowest allowed model. The status line cannot be coloured, so full cells and `⚠` stand in for a red warning. Turn it off with `/somm config cache off` if the line feels crowded.
 
+<img src="assets/status-line/status-line.en.png" alt="The status line cache gauge in four situations (illustration)" width="640">
+
+<sub>Illustration: a fresh conversation, a longer one, switching no longer pays, already on the lowest model.</sub>
+
 If another plugin already uses `/somm`, the command falls back to `/sommelier`.
 
 **Picking the model yourself (override)**: start a prompt with `somm:opus`, `somm:sonnet` or `somm:haiku` (any case) and that request uses that model (medium effort) without asking Jev. The prefix is removed before the model sees the prompt. The same model stays for the rest of the topic, until Jev sees a new topic, you `/clear`, or you switch with `/model`. A prefix with nothing after it sends nothing and only sets the model for what follows. When the switch rewrites the cache, a notice says how many tokens and roughly what it costs.
