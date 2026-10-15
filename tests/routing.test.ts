@@ -265,14 +265,14 @@ test('the status line shows the model and effort that answered', async ($, on) =
   const h = setup(on, { enabled: true })
   await $.turn.start({ text: 'CURRENT REQUEST', turnId: 't1' })
   await step($, 't1', 0)
-  expect(h.statuses.at(-1)).toBe('🍷 haiku 5.5·medium')
+  expect(h.statuses.at(-1)).toBe('🍷 haiku 5.5·medium ▱▱▱▱▱ 0k')
 })
 
 test('the status line shows the session model when Jev fails on the first turn', async ($, on) => {
   const h = setup(on, { enabled: true, jev: () => ({ status: 429, ok: false, headers: {}, text: '' }) })
   await $.turn.start({ text: 'CURRENT REQUEST', turnId: 't1' })
   await step($, 't1', 0)
-  expect(h.statuses.at(-1)).toBe('🍷 opus 5.5·medium')
+  expect(h.statuses.at(-1)).toBe('🍷 opus 5.5·medium ▰▱▱▱▱ 0k')
 })
 
 test('the status line stays empty while off and clears on /somm off', async ($, on) => {
@@ -282,6 +282,86 @@ test('the status line stays empty while off and clears on /somm off', async ($, 
   expect(h.statuses.filter((s) => s !== undefined).length).toBe(0)
   await $.command.run({ command: 'somm', args: 'off' })
   expect(h.statuses.at(-1)).toBe(undefined)
+})
+
+const failing = () => ({ status: 429, ok: false, headers: {}, text: '' })
+
+test('the cache gauge fills by how much of the payback a switch down would cost', async ($, on) => {
+  const h = setup(on, { enabled: true, contextTokens: 10000, usage: { cache_read_input_tokens: 10000 }, jev: failing })
+  await $.turn.start({ text: 'CURRENT REQUEST', turnId: 't1' })
+  await step($, 't1', 0)
+  expect(h.statuses.at(-1)).toBe('🍷 opus 5.5·medium ▰▰▱▱▱ 10k')
+})
+
+test('the cache gauge empties once the cache has expired', async ($, on) => {
+  const h = setup(on, { enabled: true, jev: failing })
+  await $.turn.start({ text: 'CURRENT REQUEST', turnId: 't1' })
+  await step($, 't1', 0)
+  expect(h.statuses.at(-1)).toBe('🍷 opus 5.5·medium ▰▱▱▱▱ 0k')
+  await h.clock.advance(60 * 60 * 1000 + 1)
+  expect(h.statuses.at(-1)).toBe('🍷 opus 5.5·medium ▱▱▱▱▱ 0k')
+})
+
+test('on haiku the cache gauge stays empty but still shows the cached tokens', async ($, on) => {
+  const h = setup(on, { enabled: true, usage: { cache_read_input_tokens: 10000 } })
+  await $.command.run({ command: 'somm', args: 'config allowed haiku-opus' })
+  await $.turn.start({ text: 'CURRENT REQUEST', turnId: 't1' })
+  await step($, 't1', 0)
+  expect(h.sent[0].model).toBe('claude-haiku-5-5')
+  expect(h.statuses.at(-1)).toBe('🍷 haiku 5.5·medium ▱▱▱▱▱ 10k')
+})
+
+test('the status line is still drawn when the session usage cannot be read', async ($, on) => {
+  const h = setup(on, {
+    enabled: true, jev: failing,
+    contextTokens: () => {
+      if (h.sent.length) throw new Error('usage unavailable')
+      return 0
+    },
+  })
+  await $.turn.start({ text: 'CURRENT REQUEST', turnId: 't1' })
+  await step($, 't1', 0)
+  expect(h.statuses.at(-1)).toBe('🍷 opus 5.5·medium ▰▱▱▱▱ 0k')
+})
+
+test('at the lowest allowed model the cache gauge stays empty', async ($, on) => {
+  const h = setup(on, { enabled: true })
+  await $.command.run({ command: 'somm', args: 'config allowed sonnet-opus' })
+  await $.turn.start({ text: 'CURRENT REQUEST', turnId: 't1' })
+  await step($, 't1', 0)
+  expect(h.sent[0].model).toBe('claude-sonnet-5-5')
+  expect(h.statuses.at(-1)).toBe('🍷 sonnet 5.5·medium ▱▱▱▱▱ 0k')
+})
+
+test('cache off leaves only the model and effort on the status line, until it is turned back on', async ($, on) => {
+  const h = setup(on, { enabled: true, jev: failing })
+  expect(await $.command.run({ command: 'somm', args: 'config cache off' })).toMatchObject({ text: '已設定：cache off' })
+  await $.turn.start({ text: 'CURRENT REQUEST', turnId: 't1' })
+  await step($, 't1', 0)
+  expect(h.statuses.at(-1)).toBe('🍷 opus 5.5·medium')
+  await h.clock.advance(60 * 60 * 1000 + 1)
+  expect(h.statuses.at(-1)).toBe('🍷 opus 5.5·medium')
+  await $.command.run({ command: 'somm', args: 'config cache on' })
+  await $.turn.start({ text: 'CURRENT REQUEST', turnId: 't2' })
+  await step($, 't2', 0)
+  expect(h.statuses.at(-1)).toMatch(/^🍷 opus 5\.5·medium [▰▱]{5} \d+k$/)
+})
+
+test('turning cache off after the gauge is shown keeps it off when the cache expires', async ($, on) => {
+  const h = setup(on, { enabled: true, jev: failing })
+  await $.turn.start({ text: 'CURRENT REQUEST', turnId: 't1' })
+  await step($, 't1', 0)
+  expect(h.statuses.at(-1)).toBe('🍷 opus 5.5·medium ▰▱▱▱▱ 0k')
+  await $.command.run({ command: 'somm', args: 'config cache off' })
+  await h.clock.advance(60 * 60 * 1000 + 1)
+  expect(h.statuses.at(-1)).toBe('🍷 opus 5.5·medium')
+})
+
+test('no cache gauge before the cache ledger has an answer', async ($, on) => {
+  const h = setup(on, { enabled: true, usage: { model: undefined } as any })
+  await $.turn.start({ text: 'CURRENT REQUEST', turnId: 't1' })
+  await step($, 't1', 0)
+  expect(h.statuses.at(-1)).toBe('🍷 haiku 5.5·medium')
 })
 
 const deep = () => ({ status: 200, ok: true, headers: {}, text: jevBody([0.02, 0.08, 0.2, 0.7]) })
@@ -310,7 +390,7 @@ const TYPICAL = { output_tokens: 2000, cache_creation_input_tokens: 3000 }
 const rungs = (h) => h.sent.map((s) => s.model.replace('claude-', '').replace('-5-5', '') + '/' + s.effort)
 
 test('a downgrade that cannot pay back its cache rewrite is blocked for that sentence only', async ($, on) => {
-  const h = setup(on, { enabled: true, contextTokens: 120000, jev: clear })
+  const h = setup(on, { enabled: true, contextTokens: 120000, usage: { cache_read_input_tokens: 120000 }, jev: clear })
   await turn($, 't1', '幫 parseDate 加上時區參數')
   const first = records(h.saved)[0]
   expect(first.reason).toBe('cost_blocked')
@@ -323,7 +403,7 @@ test('a downgrade that cannot pay back its cache rewrite is blocked for that sen
   expect(h.toasts.length).toBe(1)
   await h.clock.advance(10000)
   expect(h.toasts.length).toBe(2)
-  expect(h.statuses.at(-1)).toBe('🍷 opus 5.5·medium')
+  expect(h.statuses.at(-1)).toBe('🍷 opus 5.5·medium ▰▰▰▰▰⚠ 120k')
 })
 
 test('the same downgrade goes ahead while the conversation is short', async ($, on) => {
@@ -973,17 +1053,23 @@ const L2 = [0.05, 0.2, 0.7, 0.05]
 test('/somm config lists the settings with their defaults', async ($, on) => {
   setup(on)
   const text = await config($)
-  for (const line of ['enabled on', 'base opus·medium', 'profile balanced（平衡）', 'allowed haiku-opus', 'spinner on', 'notify important']) {
+  for (const line of ['enabled on', 'base opus·medium', 'profile balanced（平衡）', 'allowed haiku-opus', 'spinner on', 'cache on', 'notify important']) {
     expect(text).toContain(line)
   }
 })
 
 test('a value that is not allowed is refused and nothing is stored', async ($, on) => {
   const h = setup(on)
-  for (const args of ['base gpt', 'base opus:low', 'profile fast', 'allowed opus-haiku', 'spinner full', 'notify switches', 'colour red']) {
+  for (const args of ['base gpt', 'base opus:low', 'profile fast', 'allowed opus-haiku', 'spinner full', 'cache maybe', 'notify switches', 'colour red']) {
     expect(await config($, args)).not.toContain('已設定')
   }
   expect(h.saved.has('somm:config')).toBe(false)
+})
+
+test('a cache value other than on or off is refused like spinner, and cache is a known setting', async ($, on) => {
+  setup(on)
+  expect(await config($, 'cache maybe')).toBe('cache 要是 on 或 off')
+  expect(await config($, 'colour red')).toContain('cache')
 })
 
 test('a quality profile sends a borderline request to sonnet, and applies from the next turn', async ($, on) => {

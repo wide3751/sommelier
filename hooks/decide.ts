@@ -32,9 +32,10 @@ const EFFORT_ORDER = ['low', 'medium', 'high', 'xhigh', 'max']
 
 // 日常設定 (docs/spec.md「參數三層」), as stored under somm:config. On/off
 // lives in its own key. spinner is on/off and notify important/off since
-// ticket 12 dropped the finer modes.
+// ticket 12 dropped the finer modes. cache turns the status line's cache
+// gauge on/off (#36).
 export const DEFAULT_SETTINGS = {
-  base: DEFAULT_BASE, profile: 'balanced', allowed: { min: 'haiku', max: 'opus' }, spinner: 'on', notify: 'important',
+  base: DEFAULT_BASE, profile: 'balanced', allowed: { min: 'haiku', max: 'opus' }, spinner: 'on', cache: 'on', notify: 'important',
   skills: 'off', skillsAllow: [], skillsExclude: [],
 }
 
@@ -97,6 +98,10 @@ export function applySetting(settings, name, value) {
     if (v !== 'on' && v !== 'off') return { error: 'spinner 要是 on 或 off' }
     return { settings: { ...s, spinner: v } }
   }
+  if (name === 'cache') {
+    if (v !== 'on' && v !== 'off') return { error: 'cache 要是 on 或 off' }
+    return { settings: { ...s, cache: v } }
+  }
   if (name === 'notify') {
     if (v !== 'important' && v !== 'off') return { error: 'notify 要是 important 或 off' }
     return { settings: { ...s, notify: v } }
@@ -107,7 +112,7 @@ export function applySetting(settings, name, value) {
   }
   if (name === 'skills-allow') return { settings: { ...s, skillsAllow: parseNames(v) } }
   if (name === 'skills-exclude') return { settings: { ...s, skillsExclude: parseNames(v) } }
-  return { error: '沒有這個設定：' + name + '。可用 enabled、base、profile、allowed、spinner、notify、skills、skills-allow、skills-exclude' }
+  return { error: '沒有這個設定：' + name + '。可用 enabled、base、profile、allowed、spinner、cache、notify、skills、skills-allow、skills-exclude' }
 }
 
 // A skill list as typed: names split by commas or spaces; empty, `-` or
@@ -124,6 +129,7 @@ export function describeSettings(settings) {
     'profile ' + s.profile + '（' + PROFILE_NAMES[s.profile] + '）',
     'allowed ' + s.allowed.min + '-' + s.allowed.max,
     'spinner ' + s.spinner,
+    'cache ' + s.cache,
     'notify ' + s.notify,
     'skills ' + s.skills,
     'skills-allow ' + (s.skillsAllow.length ? s.skillsAllow.join(',') : '（全部）'),
@@ -283,6 +289,16 @@ export const STABLE_PREFIX = 22000
 export const LOOKBACK_MESSAGES = 20
 export const TTL_MS = { '5m': 5 * 60 * 1000, '1h': 60 * 60 * 1000 }
 
+// How long a cache written with this TTL lives; unknown TTLs count as 1h.
+export function ttlMs(ttl) {
+  return TTL_MS[ttl] ?? TTL_MS['1h']
+}
+
+// Whether a ledger entry's cache has run out by `now`.
+export function cacheExpired(entry, now, ttl) {
+  return now - entry.lastUsedAt > ttlMs(ttl)
+}
+
 export function ledgerEntry(usage, at, messageCount) {
   const cachedTokens = (usage.cache_read_input_tokens ?? 0) + (usage.cache_creation_input_tokens ?? 0) + (usage.input_tokens ?? 0)
   return { lastUsedAt: at, cachedTokens, messageCountAt: messageCount, cold: false }
@@ -300,7 +316,7 @@ export function markCold(ledger) {
 // Never used or expired → all of it; rewritten conversation or too many
 // messages since → all but the stable prefix; otherwise only what is new.
 export function coldTokens(entry, contextTokens, now, messageCount, ttl = '1h') {
-  if (!entry || now - entry.lastUsedAt > (TTL_MS[ttl] ?? TTL_MS['1h'])) return contextTokens
+  if (!entry || cacheExpired(entry, now, ttl)) return contextTokens
   if (entry.cold || messageCount - entry.messageCountAt > LOOKBACK_MESSAGES) return Math.max(0, contextTokens - STABLE_PREFIX)
   return Math.max(0, contextTokens - entry.cachedTokens)
 }
@@ -326,6 +342,32 @@ export function switchCost(from, to, contextTokens, cold, turn = DEFAULT_TURN, t
       contextTokens * (a.cacheRead - b.cacheRead)) / M
   const savings = perTurn * turns
   return { pays: extra <= savings, extra, savings }
+}
+
+// The cache gauge on the status line (#35): five cells for the switch cost of
+// moving down to the next allowed model, as a share of what it would save
+// back; full with ⚠ once the switch would be 成本擋下（cost_blocked）.
+// Then the model's cached tokens in k. Empty cells at the lowest allowed
+// model or once the cache has expired; '' while the ledger has nothing on
+// the model, or for a model id of another shape, whose prices are unknown.
+export const GAUGE_CELLS = 5
+
+export function cacheGauge(ledger, model, contextTokens, now, messageCount, ttl = '1h', turn = DEFAULT_TURN, cfg = DEFAULT_CONFIG) {
+  const entry = ledger[model]
+  if (!entry || !MODEL_ORDER.includes(model)) return ''
+  const allowed = cfg.allowed ?? DEFAULT_SETTINGS.allowed
+  const lower = MODEL_ORDER.slice(0, MODEL_ORDER.indexOf(model)).filter((m) => inRange(m, allowed)).at(-1)
+  let filled = 0
+  let warn = false
+  if (lower && !cacheExpired(entry, now, ttl)) {
+    const ctx = contextTokens || entry.cachedTokens
+    const cold = coldTokens(ledger[lower], ctx, now, messageCount, ttl)
+    const c = switchCost(model, lower, ctx, cold, turn, ttl, cfg.thresholds?.payback ?? BALANCED.payback)
+    const ratio = c.savings <= 0 ? Infinity : c.extra / c.savings
+    filled = Math.min(GAUGE_CELLS, Math.ceil(ratio * GAUGE_CELLS))
+    warn = ratio >= 1
+  }
+  return '▰'.repeat(filled) + '▱'.repeat(GAUGE_CELLS - filled) + (warn ? '⚠' : '') + ' ' + Math.round(entry.cachedTokens / 1000) + 'k'
 }
 
 // Haiku is kept to short conversations; a longer one moves to sonnet, unless

@@ -17,7 +17,7 @@
 // redact.ts.
 
 import { JEV, SKILL_QUESTIONS } from './questions.ts'
-import { DEFAULT_SETTINGS, DEFAULT_TURN, USER_ORIGINS, applySetting, asksDeepThought, cacheTtl, coldTokens, describeSettings, isShortReply, isSlashCommand, isSupportedModel, ledgerEntry, markCold, modelId, modelLabel, parseOverride, pickSkill, promptSummary, qualityGuard, rewriteCost, route, routeDeepThought, routingConfig, shortModel, skillCandidates, skillHintText, skillLabel, skillQuestions } from './decide.ts'
+import { DEFAULT_SETTINGS, DEFAULT_TURN, USER_ORIGINS, applySetting, asksDeepThought, cacheGauge, cacheTtl, coldTokens, describeSettings, isShortReply, isSlashCommand, isSupportedModel, ledgerEntry, markCold, modelId, modelLabel, parseOverride, pickSkill, promptSummary, qualityGuard, rewriteCost, route, routeDeepThought, routingConfig, shortModel, skillCandidates, skillHintText, skillLabel, skillQuestions, ttlMs } from './decide.ts'
 import { buildJevState } from './jevState.ts'
 import { redact } from './redact.ts'
 
@@ -548,8 +548,45 @@ async function override($, e, rung, contextTokens) {
 
 // The status line under the prompt: the model, with its version, and effort
 // that actually answered the last main step. The session's own model is shown beside it.
-function statusText(answered, effort) {
-  return '🍷 ' + answered + (effort ? '·' + effort : '')
+// The cache gauge follows it (#35).
+function statusText(answered, effort, gauge = '') {
+  return '🍷 ' + answered + (effort ? '·' + effort : '') + (gauge ? ' ' + gauge : '')
+}
+
+// Bumped whenever the status line changes, so only the latest one is redrawn
+// when its cache expires.
+let statusShown = 0
+
+// The status line after a main step. Once that model's cache expires the
+// gauge is drawn again, with empty cells.
+async function showStatus($, label, effort, model, messageCount) {
+  const shown = ++statusShown
+  let contextTokens = 0
+  try {
+    contextTokens = (await $.session.usage()).context.tokens ?? 0
+  } catch {
+    // Usage unavailable: the gauge falls back to the model's cached tokens.
+  }
+  const turn = seen.turns ? { output: seen.output / seen.turns, fresh: seen.fresh / seen.turns } : DEFAULT_TURN
+  // Read at draw time, so cache off also keeps a pending expiry redraw plain.
+  const gauge = (now) => (settings.cache === 'off' ? '' : cacheGauge(ledger, model, contextTokens, now, messageCount, lastTtl, turn, cfg))
+  $.ui.status(statusText(label, effort, gauge(await $.clock.now())))
+  if (ledger[model]) void redrawOnExpiry($, shown, () => statusText(label, effort, gauge(Infinity)))
+}
+
+async function redrawOnExpiry($, shown, text) {
+  try {
+    await $.clock.sleep(ttlMs(lastTtl) + 1)
+  } catch {
+    // The session ended first.
+    return
+  }
+  if (shown === statusShown) $.ui.status(text())
+}
+
+function clearStatus($) {
+  statusShown += 1
+  $.ui.status(undefined)
 }
 
 function spinnerText(decision, skill = null) {
@@ -611,7 +648,7 @@ async function runCommand($, e) {
     await $.store.set(ENABLED_KEY, false)
     lastShown = ''
     $.ui.invalidate('ui.render')
-    $.ui.status(undefined)
+    clearStatus($)
     return { text: 'sommelier 已關閉：沿用 session 的模型與 effort。' }
   }
   if (sub === 'config') return configCommand($, arg, words.slice(2).join(' '))
@@ -820,8 +857,11 @@ export function register(on, options) {
       lastTtl = cacheTtl(u) ?? lastTtl
       if (u.model) ledger = { ...ledger, [t.answeredModel]: ledgerEntry(u, await $.clock.now(), e.messageCount) }
     }
-    if (t.decision.reason === 'off') $.ui.status(undefined)
-    else $.ui.status(statusText(modelLabel(u && u.model ? u.model : out.model), out.effort))
+    if (t.decision.reason === 'off') clearStatus($)
+    else {
+      const answered = u && u.model ? u.model : out.model
+      await showStatus($, modelLabel(answered), out.effort, shortModel(answered), e.messageCount)
+    }
     return result
   })
 

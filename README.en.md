@@ -144,12 +144,15 @@ On by default after install; there is no need to run `/somm on`. Before a reques
 | `profile` | balanced | `saver` (uses opus less, calls a new topic sooner), `balanced`, `quality` (sonnet and opus sooner, haiku only for conversations under 15k) |
 | `allowed` | haiku-opus | The models sommelier may pick, e.g. `sonnet-opus` never uses haiku. A `somm:` override is not limited |
 | `spinner` | on | Whether the spinner shows this turn's routing while Claude works |
+| `cache` | on | Whether the status line shows the cache gauge; `off` shows only the model and effort |
 | `notify` | important | Important notices: an override or downgrade that rewrites the cache, Jev failing 3 times in a row, no API key (shown once). At most one per turn; several within 10 seconds show only the newest once the 10 seconds are up. `off` shows none |
 | `skills` | off | Skill hints on or off (beta, off by default). `on` turns them on; `off` stops skill hints only, and model routing goes on |
 | `skills-allow` | (all) | Only these skills are candidates, comma separated, named as `/skills` lists them, such as `mattpocock-skills:tdd,grilling`; `none` clears it |
 | `skills-exclude` | (none) | These skills are never hinted, written the same way; a skill in both lists is excluded |
 
-When on, the status line under the prompt shows the model, its version and the effort that actually answered, for example `🍷 haiku 5.5·medium`. The model Claude Code shows next to it is the session's own.
+When on, the status line under the prompt shows the model, its version and the effort that actually answered, followed by the cache gauge, for example `🍷 opus 5.5·medium ▰▰▱▱▱ 95k`. The model Claude Code shows next to it is the session's own.
+
+**Cache gauge**: the number is how much cache the current model has built up. The 5 cells show the switch cost of moving down to the next lower model within `allowed` (the price of rewriting the cache) as a share of the quota that switch is expected to save, 20% per cell. The fuller the cells, the less a switch down pays off; full cells plus `⚠` (for example `▰▰▰▰▰⚠ 243k`) mean the switch costs more than it would save, so sommelier blocks the downgrade and switching yourself is not advised. The cells are empty once the cache has expired, or when you are already on the lowest allowed model. The status line cannot be coloured, so full cells and `⚠` stand in for a red warning. Turn it off with `/somm config cache off` if the line feels crowded.
 
 If another plugin already uses `/somm`, the command falls back to `/sommelier`.
 

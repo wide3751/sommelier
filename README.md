@@ -144,12 +144,15 @@ Keychain 只有 macOS 才有；Windows 上 key 由 Claude Code 的 plugin 設定
 | `profile` | balanced | `saver`（省額度：較少用 opus、較晚換話題）、`balanced`（平衡）、`quality`（品質優先：較早用 sonnet／opus、haiku 只接 15k 以內的對話）；也可以寫中文名稱 |
 | `allowed` | haiku-opus | sommelier 可以選的模型範圍，例如 `sonnet-opus` 就不會用 haiku。`somm:` 覆寫不受限制 |
 | `spinner` | on | Claude 工作時 spinner 旁是否顯示這一輪的判斷 |
+| `cache` | on | 狀態列是否顯示 cache 量表；`off` 時只顯示模型與 effort |
 | `notify` | important | 跳出重要提示：覆寫或降級要重寫 cache、Jev 連續 3 次判斷失敗、沒有 API key（只提示一次）。同一輪最多一則，10 秒內有好幾則時只補顯示最新的一則；`off` 不跳提示 |
 | `skills` | off | skill 提示的開關（beta，預設關閉）。`on` 開啟；`off` 只關掉 skill 提示，選模型照常運作 |
 | `skills-allow` | （全部） | 只讓這些 skill 成為候選，逗號分隔，名稱照 `/skills` 列出的寫，例如 `mattpocock-skills:tdd,grilling`；`none` 清空 |
 | `skills-exclude` | （無） | 不提示這些 skill，寫法同上；跟 `skills-allow` 都列了的以排除為準 |
 
-開啟後，prompt 下方的狀態列會顯示實際回答的模型、版本與 effort，例如 `🍷 haiku 5.5·medium`。旁邊 Claude Code 自己顯示的是 session 的模型。
+開啟後，prompt 下方的狀態列會顯示實際回答的模型、版本與 effort，後面接著 cache 量表，例如 `🍷 opus 5.5·medium ▰▰▱▱▱ 95k`。旁邊 Claude Code 自己顯示的是 session 的模型。
+
+**cache 量表**：數字是目前模型累積的 cache 量。5 格代表換到 allowed 範圍內下一個較低模型的切換成本（重寫 cache 的費用），佔預估省回額度的多少，每格 20%。格子越滿，換下去越不划算；滿格再加上 `⚠`（例如 `▰▰▰▰▰⚠ 243k`）表示切換成本已經超過省回的額度，sommelier 這時會擋下降級，你自己換也不建議。cache 已過期、或已經是 allowed 內最低的模型時，格子全空。狀態列不能上色，所以用滿格加 `⚠` 當警示。嫌擠可以用 `/somm config cache off` 關掉。
 
 `/somm` 如果被其他 plugin 占用，會自動改用 `/sommelier`。
 
