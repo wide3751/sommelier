@@ -311,6 +311,30 @@ test('at the lowest allowed model the cache gauge stays empty', async ($, on) =>
   expect(h.statuses.at(-1)).toBe('🍷 sonnet 5.5·medium ▱▱▱▱▱ 0k')
 })
 
+test('cache off leaves only the model and effort on the status line, until it is turned back on', async ($, on) => {
+  const h = setup(on, { enabled: true, jev: failing })
+  expect(await $.command.run({ command: 'somm', args: 'config cache off' })).toMatchObject({ text: '已設定：cache off' })
+  await $.turn.start({ text: 'CURRENT REQUEST', turnId: 't1' })
+  await step($, 't1', 0)
+  expect(h.statuses.at(-1)).toBe('🍷 opus 5.5·medium')
+  await h.clock.advance(60 * 60 * 1000 + 1)
+  expect(h.statuses.at(-1)).toBe('🍷 opus 5.5·medium')
+  await $.command.run({ command: 'somm', args: 'config cache on' })
+  await $.turn.start({ text: 'CURRENT REQUEST', turnId: 't2' })
+  await step($, 't2', 0)
+  expect(h.statuses.at(-1)).toMatch(/^🍷 opus 5\.5·medium [▰▱]{5} \d+k$/)
+})
+
+test('turning cache off after the gauge is shown keeps it off when the cache expires', async ($, on) => {
+  const h = setup(on, { enabled: true, jev: failing })
+  await $.turn.start({ text: 'CURRENT REQUEST', turnId: 't1' })
+  await step($, 't1', 0)
+  expect(h.statuses.at(-1)).toBe('🍷 opus 5.5·medium ▰▱▱▱▱ 0k')
+  await $.command.run({ command: 'somm', args: 'config cache off' })
+  await h.clock.advance(60 * 60 * 1000 + 1)
+  expect(h.statuses.at(-1)).toBe('🍷 opus 5.5·medium')
+})
+
 test('no cache gauge before the cache ledger has an answer', async ($, on) => {
   const h = setup(on, { enabled: true, usage: { model: undefined } as any })
   await $.turn.start({ text: 'CURRENT REQUEST', turnId: 't1' })
@@ -1007,17 +1031,23 @@ const L2 = [0.05, 0.2, 0.7, 0.05]
 test('/somm config lists the settings with their defaults', async ($, on) => {
   setup(on)
   const text = await config($)
-  for (const line of ['enabled on', 'base opus·medium', 'profile balanced（平衡）', 'allowed haiku-opus', 'spinner on', 'notify important']) {
+  for (const line of ['enabled on', 'base opus·medium', 'profile balanced（平衡）', 'allowed haiku-opus', 'spinner on', 'cache on', 'notify important']) {
     expect(text).toContain(line)
   }
 })
 
 test('a value that is not allowed is refused and nothing is stored', async ($, on) => {
   const h = setup(on)
-  for (const args of ['base gpt', 'base opus:low', 'profile fast', 'allowed opus-haiku', 'spinner full', 'notify switches', 'colour red']) {
+  for (const args of ['base gpt', 'base opus:low', 'profile fast', 'allowed opus-haiku', 'spinner full', 'cache maybe', 'notify switches', 'colour red']) {
     expect(await config($, args)).not.toContain('已設定')
   }
   expect(h.saved.has('somm:config')).toBe(false)
+})
+
+test('a cache value other than on or off is refused like spinner, and cache is a known setting', async ($, on) => {
+  setup(on)
+  expect(await config($, 'cache maybe')).toBe('cache 要是 on 或 off')
+  expect(await config($, 'colour red')).toContain('cache')
 })
 
 test('a quality profile sends a borderline request to sonnet, and applies from the next turn', async ($, on) => {

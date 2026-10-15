@@ -32,9 +32,9 @@ const EFFORT_ORDER = ['low', 'medium', 'high', 'xhigh', 'max']
 
 // 日常設定 (docs/spec.md「參數三層」), as stored under somm:config. On/off
 // lives in its own key. spinner is on/off and notify important/off since
-// ticket 12 dropped the finer modes.
+// ticket 12 dropped the finer modes. cache turns the status line's cache gauge on/off (#36).
 export const DEFAULT_SETTINGS = {
-  base: DEFAULT_BASE, profile: 'balanced', allowed: { min: 'haiku', max: 'opus' }, spinner: 'on', notify: 'important',
+  base: DEFAULT_BASE, profile: 'balanced', allowed: { min: 'haiku', max: 'opus' }, spinner: 'on', cache: 'on', notify: 'important',
   skills: 'off', skillsAllow: [], skillsExclude: [],
 }
 
@@ -97,6 +97,10 @@ export function applySetting(settings, name, value) {
     if (v !== 'on' && v !== 'off') return { error: 'spinner 要是 on 或 off' }
     return { settings: { ...s, spinner: v } }
   }
+  if (name === 'cache') {
+    if (v !== 'on' && v !== 'off') return { error: 'cache 要是 on 或 off' }
+    return { settings: { ...s, cache: v } }
+  }
   if (name === 'notify') {
     if (v !== 'important' && v !== 'off') return { error: 'notify 要是 important 或 off' }
     return { settings: { ...s, notify: v } }
@@ -107,7 +111,7 @@ export function applySetting(settings, name, value) {
   }
   if (name === 'skills-allow') return { settings: { ...s, skillsAllow: parseNames(v) } }
   if (name === 'skills-exclude') return { settings: { ...s, skillsExclude: parseNames(v) } }
-  return { error: '沒有這個設定：' + name + '。可用 enabled、base、profile、allowed、spinner、notify、skills、skills-allow、skills-exclude' }
+  return { error: '沒有這個設定：' + name + '。可用 enabled、base、profile、allowed、spinner、cache、notify、skills、skills-allow、skills-exclude' }
 }
 
 // A skill list as typed: names split by commas or spaces; empty, `-` or
@@ -124,6 +128,7 @@ export function describeSettings(settings) {
     'profile ' + s.profile + '（' + PROFILE_NAMES[s.profile] + '）',
     'allowed ' + s.allowed.min + '-' + s.allowed.max,
     'spinner ' + s.spinner,
+    'cache ' + s.cache,
     'notify ' + s.notify,
     'skills ' + s.skills,
     'skills-allow ' + (s.skillsAllow.length ? s.skillsAllow.join(',') : '（全部）'),

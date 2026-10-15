@@ -563,7 +563,8 @@ async function showStatus($, label, effort, model, messageCount) {
   const shown = ++statusShown
   const contextTokens = (await $.session.usage()).context.tokens ?? 0
   const turn = seen.turns ? { output: seen.output / seen.turns, fresh: seen.fresh / seen.turns } : DEFAULT_TURN
-  const gauge = (now) => cacheGauge(ledger, model, contextTokens, now, messageCount, lastTtl, turn, cfg)
+  // Read at draw time, so cache off also keeps a pending expiry redraw plain.
+  const gauge = (now) => (settings.cache === 'off' ? '' : cacheGauge(ledger, model, contextTokens, now, messageCount, lastTtl, turn, cfg))
   $.ui.status(statusText(label, effort, gauge(await $.clock.now())))
   if (ledger[model]) void redrawOnExpiry($, shown, () => statusText(label, effort, gauge(Infinity)))
 }
