@@ -275,15 +275,25 @@ test('secrets in skill descriptions are redacted before they are sent', async ($
   expect(grilling).not.toContain('sk-abc')
 })
 
-test('a new install is asked once, and agreeing covers skill descriptions too', async ($, on) => {
-  const h = setup(on, { consent: false, skillConsent: null })
+test('a new install is asked once, and the question leaves skills out', async ($, on) => {
+  const h = setup(on, { consent: false, skillConsent: null, config: null })
   await typed($, 't1', '幫 parseDate 加上時區參數，先寫測試')
   expect(h.asked.length).toBe(1)
-  expect(h.asked[0]).toContain('skill 的名稱與描述')
-  expect(h.contexts).toEqual([[HINT_TDD]])
+  expect(h.asked[0]).not.toContain('skill')
+  expect(h.saved.get('somm:consent:skills')).toBe(undefined)
 })
 
-test('those who agreed before skill hints are asked about them once', async ($, on) => {
+test('turning skill hints on asks about skill descriptions once, apart from the first question', async ($, on) => {
+  const h = setup(on, { consent: false, skillConsent: null })
+  await typed($, 't1', '幫 parseDate 加上時區參數，先寫測試')
+  await typed($, 't2', '另外幫 formatMoney 加上幣別，也先寫測試')
+  expect(h.asked.length).toBe(2)
+  expect(h.asked[0]).not.toContain('skill')
+  expect(h.asked[1]).toContain('skill 的名稱與描述')
+  expect(h.contexts[0]).toEqual([HINT_TDD])
+})
+
+test('those who agreed before are asked about skill hints once', async ($, on) => {
   const h = setup(on, { skillConsent: null })
   await typed($, 't1', '幫 parseDate 加上時區參數，先寫測試')
   await typed($, 't2', '另外幫 formatMoney 加上幣別，也先寫測試')

@@ -32,11 +32,11 @@ const SKILL_CONSENT_KEY = 'somm:consent:skills'
 const PROJECT_OFF_PREFIX = 'somm:project-off:'
 const PROMPT_SUMMARY_CHARS = 40
 const CONSENT_QUESTION =
-  'sommelier 會把你之後送出的每個請求（短回覆除外）、最近 3 輪對話（不含工具輸出），以及你本機 skill 的名稱與描述（常見密鑰格式已遮蔽）送到 TypeSafe，判斷要用哪個模型、要不要提示 Claude 使用某個 skill。要開始使用嗎？'
+  'sommelier 會把你之後送出的每個請求（短回覆除外），以及最近 3 輪對話（不含工具輸出）送到 TypeSafe（常見密鑰格式已遮蔽），判斷要用哪個模型。要開始使用嗎？'
 const CONSENT_AGREE = '同意，開始使用'
 const CONSENT_DECLINE = '不同意，關閉 sommelier'
 const SKILL_CONSENT_QUESTION =
-  'sommelier 新增了 skill 提示：會額外把你本機 skill 的名稱與描述（常見密鑰格式已遮蔽）送到 TypeSafe，判斷要不要提示 Claude 使用某個 skill。要開啟嗎？'
+  '開啟 skill 提示後，sommelier 會額外把你本機 skill 的名稱與描述（常見密鑰格式已遮蔽）送到 TypeSafe，判斷要不要提示 Claude 使用某個 skill。要開啟嗎？'
 const SKILL_CONSENT_AGREE = '同意，開啟 skill 提示'
 const SKILL_CONSENT_DECLINE = '不同意，關閉 skill 提示'
 const REC_PREFIX = 'somm:rec:'
@@ -196,8 +196,6 @@ async function askConsent($) {
   }
   if (answer === CONSENT_AGREE) {
     await $.store.set(CONSENT_KEY, true)
-    // The question named skill descriptions too.
-    await $.store.set(SKILL_CONSENT_KEY, true)
     return 'agreed'
   }
   if (answer !== CONSENT_DECLINE) return 'unanswered'
@@ -206,8 +204,9 @@ async function askConsent($) {
   return 'declined'
 }
 
-// Asks once before skill descriptions first leave the machine, of those who
-// agreed before skill hints existed. Declining turns skill hints off only.
+// Asks once before skill descriptions first leave the machine: skill hints are
+// off by default (beta), so the first question leaves them out. Declining turns
+// skill hints off only.
 async function askSkillConsent($) {
   if ((await $.store.get(SKILL_CONSENT_KEY)) === true) return 'agreed'
   let answer
