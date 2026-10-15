@@ -1185,3 +1185,42 @@ test('the store keeps the routing state of the 20 latest sessions', async ($, on
   expect(kept).toContain('somm:state:sess1')
   expect(kept).not.toContain('somm:state:old0')
 })
+
+test('after a reload an override lock still holds on the same topic', async ($, on) => {
+  const h = setup(on, { enabled: true, jev: sameTopic, contextTokens: 50000 })
+  const haiku = { model: 'haiku', effort: 'medium' }
+  h.saved.set('somm:state:sess1', { ...KEPT, currentRung: haiku, locked: haiku })
+  await turn($, 't1', 'CURRENT REQUEST')
+  const rec = records(h.saved)[0]
+  expect(rec.reason).toBe('override_locked')
+  expect(rec.rung).toEqual(haiku)
+})
+
+test('an automatic fallback is saved at once and still holds after a reload', async ($, on) => {
+  const h = setup(on, { enabled: true })
+  await $.classic.PostModelSwitch({ ...userSwitch(SONNET, null), source: 'auto' })
+  expect((h.saved.get('somm:state:sess1') as any).fallback).toBe(true)
+})
+
+test('after a reload a stored fallback leaves requests alone', async ($, on) => {
+  const h = setup(on, { enabled: true })
+  h.saved.set('somm:state:sess1', { ...KEPT, fallback: true })
+  await turn($, 't1', '看一下 package.json 的 version', SONNET)
+  expect(h.fetches.length).toBe(0)
+  expect(records(h.saved)[0].reason).toBe('fallback')
+})
+
+test('the cache ledger is kept with the routing state', async ($, on) => {
+  const h = setup(on, { enabled: true, jev: sameTopic })
+  await turn($, 't1', 'CURRENT REQUEST')
+  expect(Object.keys((h.saved.get('somm:state:sess1') as any).ledger)).toEqual(['sonnet'])
+})
+
+test('a /compact right after a reload reads the stored state first, and does not overwrite it with blanks', async ($, on) => {
+  const h = setup(on, { enabled: true, jev: sameTopic, contextTokens: 50000 })
+  h.saved.set('somm:state:sess1', KEPT)
+  await $.classic.SessionStart({ source: 'compact', model: SONNET })
+  await turn($, 't1', 'CURRENT REQUEST', SONNET)
+  expect(records(h.saved)[0].newTopic).toBe(false)
+  expect((h.saved.get('somm:state:sess1') as any).judgedTurns).toBe(4)
+})

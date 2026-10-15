@@ -279,7 +279,9 @@ async function userSwitch($, e) {
 
 async function setManual($, model) {
   manual = model
-  const key = MANUAL_PREFIX + (await $.session.id())
+  const sid = await sessionId($)
+  if (!sid) return
+  const key = MANUAL_PREFIX + sid
   if (model) await $.store.set(key, model)
   else await $.store.delete(key)
 }
@@ -293,39 +295,51 @@ async function sessionId($) {
   }
 }
 
-// The routing state that must outlive a module reload, per session.
+// The routing state that must outlive a module reload, kept per session:
+// each entry reads its variable, and writes it back from what was kept.
+const KEPT_STATE = {
+  currentRung: [() => currentRung, (v) => (currentRung = v ?? null)],
+  judgedTurns: [() => judgedTurns, (v) => (judgedTurns = v ?? 0)],
+  ledger: [() => ledger, (v) => (ledger = v ?? {})],
+  lastTtl: [() => lastTtl, (v) => (lastTtl = v ?? lastTtl)],
+  seen: [() => ({ ...seen }), (v) => Object.assign(seen, v ?? {})],
+  fallback: [() => fallback, (v) => (fallback = v ?? false)],
+  launchModel: [() => launchModel, (v) => (launchModel = v ?? null)],
+  locked: [() => locked, (v) => (locked = v ?? null)],
+  hinted: [() => hinted, (v) => (hinted = v ?? [])],
+  lastShown: [() => lastShown, (v) => (lastShown = v ?? '')],
+}
+
+// Drops the oldest entries under a prefix past the cap; `age` dates each key.
+async function trimStore($, prefix, cap, age) {
+  const keys = (await $.store.keys()).filter((k) => k.startsWith(prefix))
+  if (keys.length <= cap) return
+  const byAge = []
+  for (const k of keys) byAge.push({ k, at: await age(k) })
+  byAge.sort((a, b) => a.at - b.at)
+  for (const { k } of byAge.slice(0, byAge.length - cap)) await $.store.delete(k)
+}
+
 async function saveState($) {
   const sid = await sessionId($)
   if (!sid) return
-  const at = await $.clock.now()
-  await $.store.set(STATE_PREFIX + sid, {
-    at, currentRung, judgedTurns, ledger, lastTtl, seen: { ...seen }, fallback, launchModel, locked, hinted,
-  })
-  const keys = (await $.store.keys()).filter((k) => k.startsWith(STATE_PREFIX))
-  if (keys.length <= STATE_CAP) return
-  const dated = []
-  for (const k of keys) dated.push({ k, at: ((await $.store.get(k)) ?? {}).at ?? 0 })
-  dated.sort((a, b) => a.at - b.at)
-  for (const { k } of dated.slice(0, dated.length - STATE_CAP)) await $.store.delete(k)
+  const kept = { at: await $.clock.now() }
+  for (const [name, [read]] of Object.entries(KEPT_STATE)) kept[name] = read()
+  await $.store.set(STATE_PREFIX + sid, kept)
+  await trimStore($, STATE_PREFIX, STATE_CAP, async (k) => ((await $.store.get(k)) ?? {}).at ?? 0)
 }
 
+// Reads back what saveState kept for this session, once per module: the
+// manual pick from its own key, the rest from the state key.
 async function restoreState($) {
   if (restored) return
   const sid = await sessionId($)
   if (!sid) return
   restored = true
   manual = (await $.store.get(MANUAL_PREFIX + sid)) ?? manual
-  const s = await $.store.get(STATE_PREFIX + sid)
-  if (!s) return
-  currentRung = s.currentRung ?? null
-  judgedTurns = s.judgedTurns ?? 0
-  ledger = s.ledger ?? {}
-  lastTtl = s.lastTtl ?? lastTtl
-  Object.assign(seen, s.seen ?? {})
-  fallback = s.fallback ?? false
-  launchModel = s.launchModel ?? null
-  locked = s.locked ?? null
-  hinted = s.hinted ?? []
+  const kept = await $.store.get(STATE_PREFIX + sid)
+  if (!kept) return
+  for (const [name, [, write]] of Object.entries(KEPT_STATE)) write(kept[name])
   note('state restored for ' + sid.slice(0, 6) + ': ' + (currentRung ? currentRung.model + '·' + currentRung.effort : 'session') + ', ' + judgedTurns + ' judged')
 }
 
@@ -554,11 +568,10 @@ function rungText(decision) {
 }
 
 async function writeRecord($, rec) {
-  const sid = await $.session.id()
+  const sid = await sessionId($)
   const at = await $.clock.now()
   await $.store.set(REC_PREFIX + String(at).padStart(14, '0') + ':' + sid, { ...rec, at, session: sid })
-  const keys = (await $.store.keys()).filter((k) => k.startsWith(REC_PREFIX)).sort()
-  for (const k of keys.slice(0, Math.max(0, keys.length - REC_CAP))) await $.store.delete(k)
+  await trimStore($, REC_PREFIX, REC_CAP, (k) => Number(k.slice(REC_PREFIX.length).split(':')[0]))
 }
 
 async function recentRecords($, n) {
@@ -673,13 +686,18 @@ export function register(on, options) {
       model = model ?? (await $.session.model())
     } catch {}
     note('SessionStart source=' + e.source + ' model=' + model)
-    restored = true
+    // A reload's first event can be a /compact or /clear: read back what the
+    // store kept before acting on it. /clear already carries the new session
+    // id, so only a manual pick saved under it comes back. startup and resume
+    // begin afresh, as before (resume reads the manual pick below).
+    if (e.source === 'startup' || e.source === 'resume') restored = true
+    else await restoreState($)
     if (e.source === 'startup') launchModel = model
     if (e.source !== 'startup') {
       ledger = markCold(ledger)
       skillCache = null
     }
-    if (e.source === 'resume') manual = (await $.store.get(MANUAL_PREFIX + (await $.session.id()))) ?? manual
+    if (e.source === 'resume') manual = (await $.store.get(MANUAL_PREFIX + (await sessionId($)))) ?? manual
     if (e.source === 'clear') {
       currentRung = null
       locked = null
@@ -746,8 +764,14 @@ export function register(on, options) {
     return next({ ...out, context: [...(e.context ?? []), skillHintText(skill.hint)] })
   })
 
-  on('command.run', { command: COMMAND }, async ($, e) => (await restoreState($), runCommand($, e)))
-  on('command.run', { command: FALLBACK_COMMAND }, async ($, e) => (await restoreState($), runCommand($, e)))
+  on('command.run', { command: COMMAND }, async ($, e) => {
+    await restoreState($)
+    return runCommand($, e)
+  })
+  on('command.run', { command: FALLBACK_COMMAND }, async ($, e) => {
+    await restoreState($)
+    return runCommand($, e)
+  })
 
   on('turn.start', async ($, e, next) => {
     await restoreState($)
