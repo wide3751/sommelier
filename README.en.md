@@ -234,7 +234,7 @@ sommelier is on by default after install, and while on it sends data to TypeSafe
 - **What is sent**: the current request (up to 2,000 characters) and the text of the last 3 turns (up to 500 characters each, keeping the end); with skill hints on, also the names and descriptions of the candidate skills (up to 300 characters each). The first-use question leaves skills out; once skill hints are on, you are asked separately before skill data is first sent, and declining turns skill hints off only
 - **Masked before sending**: common secret formats become `[REDACTED]`: `sk-`, `AKIA`, `ghp_`, `xoxb-`/`xoxp-`, `AIza`, `Bearer`, `password=`, JWTs, private key blocks, and hex strings of 32 or more characters
 - **What is not sent**: file contents, tool calls and tool output, subagent requests, and projects turned off with `/somm off --project`
-- **Local records**: `/somm log` records store the rung, Jev's probabilities, latency, cache reads and writes, the hinted skill and whether it was taken up, and the first 40 characters of the prompt (masked); turned-off projects store no prompt
+- **Local records**: `/somm log` records store the rung, Jev's probabilities, latency, cache reads and writes, the hinted skill and whether it was taken up, and the first 40 characters of the prompt (masked); turned-off projects store no prompt. Each session's routing state (current rung, cache ledger, override lock and so on, no prompt) is also kept locally so a running session carries on after a plugin update; only the latest 20 sessions are kept
 - **API key**: stored in the macOS Keychain (`/plugin configure`), or read from the `TYPESAFE_API_KEY` environment variable
 
 ## Contributing
