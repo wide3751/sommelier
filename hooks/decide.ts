@@ -328,6 +328,32 @@ export function switchCost(from, to, contextTokens, cold, turn = DEFAULT_TURN, t
   return { pays: extra <= savings, extra, savings }
 }
 
+// The cache gauge on the status line (#35): five cells for the switch cost of
+// moving down to the next allowed model, as a share of what it would save
+// back; full with ⚠ once the switch would be cost_blocked. Then the model's
+// cached tokens in k. Empty cells at the lowest allowed model or once the
+// cache has expired; '' while the ledger has nothing on the model, or for a
+// model id of another shape, whose prices are unknown.
+export const GAUGE_CELLS = 5
+
+export function cacheGauge(ledger, model, contextTokens, now, messageCount, ttl = '1h', turn = DEFAULT_TURN, cfg = DEFAULT_CONFIG) {
+  const entry = ledger[model]
+  if (!entry || !MODEL_ORDER.includes(model)) return ''
+  const allowed = cfg.allowed ?? DEFAULT_SETTINGS.allowed
+  const lower = MODEL_ORDER.slice(0, MODEL_ORDER.indexOf(model)).filter((m) => inRange(m, allowed)).at(-1)
+  let filled = 0
+  let warn = false
+  if (lower && now - entry.lastUsedAt <= (TTL_MS[ttl] ?? TTL_MS['1h'])) {
+    const ctx = contextTokens || entry.cachedTokens
+    const cold = coldTokens(ledger[lower], ctx, now, messageCount, ttl)
+    const c = switchCost(model, lower, ctx, cold, turn, ttl, cfg.thresholds?.payback ?? BALANCED.payback)
+    const ratio = c.savings <= 0 ? Infinity : c.extra / c.savings
+    filled = Math.min(GAUGE_CELLS, Math.ceil(ratio * GAUGE_CELLS))
+    warn = ratio >= 1
+  }
+  return '▰'.repeat(filled) + '▱'.repeat(GAUGE_CELLS - filled) + (warn ? '⚠' : '') + ' ' + Math.round(entry.cachedTokens / 1000) + 'k'
+}
+
 // Haiku is kept to short conversations; a longer one moves to sonnet, unless
 // sonnet is not allowed.
 export function qualityGuard(rung, contextTokens, cfg = DEFAULT_CONFIG) {

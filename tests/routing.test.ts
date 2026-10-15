@@ -265,14 +265,14 @@ test('the status line shows the model and effort that answered', async ($, on) =
   const h = setup(on, { enabled: true })
   await $.turn.start({ text: 'CURRENT REQUEST', turnId: 't1' })
   await step($, 't1', 0)
-  expect(h.statuses.at(-1)).toBe('🍷 haiku 5.5·medium')
+  expect(h.statuses.at(-1)).toBe('🍷 haiku 5.5·medium ▱▱▱▱▱ 0k')
 })
 
 test('the status line shows the session model when Jev fails on the first turn', async ($, on) => {
   const h = setup(on, { enabled: true, jev: () => ({ status: 429, ok: false, headers: {}, text: '' }) })
   await $.turn.start({ text: 'CURRENT REQUEST', turnId: 't1' })
   await step($, 't1', 0)
-  expect(h.statuses.at(-1)).toBe('🍷 opus 5.5·medium')
+  expect(h.statuses.at(-1)).toBe('🍷 opus 5.5·medium ▰▱▱▱▱ 0k')
 })
 
 test('the status line stays empty while off and clears on /somm off', async ($, on) => {
@@ -282,6 +282,40 @@ test('the status line stays empty while off and clears on /somm off', async ($, 
   expect(h.statuses.filter((s) => s !== undefined).length).toBe(0)
   await $.command.run({ command: 'somm', args: 'off' })
   expect(h.statuses.at(-1)).toBe(undefined)
+})
+
+const failing = () => ({ status: 429, ok: false, headers: {}, text: '' })
+
+test('the cache gauge fills by how much of the payback a switch down would cost', async ($, on) => {
+  const h = setup(on, { enabled: true, contextTokens: 10000, usage: { cache_read_input_tokens: 10000 }, jev: failing })
+  await $.turn.start({ text: 'CURRENT REQUEST', turnId: 't1' })
+  await step($, 't1', 0)
+  expect(h.statuses.at(-1)).toBe('🍷 opus 5.5·medium ▰▰▱▱▱ 10k')
+})
+
+test('the cache gauge empties once the cache has expired', async ($, on) => {
+  const h = setup(on, { enabled: true, jev: failing })
+  await $.turn.start({ text: 'CURRENT REQUEST', turnId: 't1' })
+  await step($, 't1', 0)
+  expect(h.statuses.at(-1)).toBe('🍷 opus 5.5·medium ▰▱▱▱▱ 0k')
+  await h.clock.advance(60 * 60 * 1000 + 1)
+  expect(h.statuses.at(-1)).toBe('🍷 opus 5.5·medium ▱▱▱▱▱ 0k')
+})
+
+test('at the lowest allowed model the cache gauge stays empty', async ($, on) => {
+  const h = setup(on, { enabled: true })
+  await $.command.run({ command: 'somm', args: 'config allowed sonnet-opus' })
+  await $.turn.start({ text: 'CURRENT REQUEST', turnId: 't1' })
+  await step($, 't1', 0)
+  expect(h.sent[0].model).toBe('claude-sonnet-5-5')
+  expect(h.statuses.at(-1)).toBe('🍷 sonnet 5.5·medium ▱▱▱▱▱ 0k')
+})
+
+test('no cache gauge before the cache ledger has an answer', async ($, on) => {
+  const h = setup(on, { enabled: true, usage: { model: undefined } as any })
+  await $.turn.start({ text: 'CURRENT REQUEST', turnId: 't1' })
+  await step($, 't1', 0)
+  expect(h.statuses.at(-1)).toBe('🍷 haiku 5.5·medium')
 })
 
 const deep = () => ({ status: 200, ok: true, headers: {}, text: jevBody([0.02, 0.08, 0.2, 0.7]) })
@@ -323,7 +357,7 @@ test('a downgrade that cannot pay back its cache rewrite is blocked for that sen
   expect(h.toasts.length).toBe(1)
   await h.clock.advance(10000)
   expect(h.toasts.length).toBe(2)
-  expect(h.statuses.at(-1)).toBe('🍷 opus 5.5·medium')
+  expect(h.statuses.at(-1)).toBe('🍷 opus 5.5·medium ▰▰▰▰▰⚠ 0k')
 })
 
 test('the same downgrade goes ahead while the conversation is short', async ($, on) => {
