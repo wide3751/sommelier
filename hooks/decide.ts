@@ -220,8 +220,11 @@ export function modelId(model) {
   return MODEL_IDS[model] ?? model
 }
 
+// haiku, sonnet or opus for a full id, one with a date suffix, or the short
+// name itself; an id of another shape is returned as is.
 export function shortModel(id) {
-  for (const [name, full] of Object.entries(MODEL_IDS)) if (id === full || id === name) return name
+  const bare = String(id ?? '').replace(/-\d{8}$/, '')
+  for (const [name, full] of Object.entries(MODEL_IDS)) if (bare === full || bare === name) return name
   return id
 }
 

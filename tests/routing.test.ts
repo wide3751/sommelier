@@ -406,6 +406,17 @@ test('a downgrade that cannot pay back its cache rewrite is blocked for that sen
   expect(h.statuses.at(-1)).toBe('🍷 opus 5.5·medium ▰▰▰▰▰⚠ 120k')
 })
 
+test('a dated session model id weighs the same switch cost and shows the cache gauge', async ($, on) => {
+  const DATED = 'claude-opus-5-5-20261001'
+  const h = setup(on, { enabled: true, sessionModel: DATED, contextTokens: 120000, usage: { cache_read_input_tokens: 120000, model: DATED } as any, jev: clear })
+  await turn($, 't1', '幫 parseDate 加上時區參數', DATED)
+  const first = records(h.saved)[0]
+  expect(first.reason).toBe('cost_blocked')
+  expect(first.switchCost).toBeGreaterThan(first.switchSavings)
+  expect(h.sent[0].model).toBe(DATED)
+  expect(h.statuses.at(-1)).toBe('🍷 opus 5.5·medium ▰▰▰▰▰⚠ 120k')
+})
+
 test('the same downgrade goes ahead while the conversation is short', async ($, on) => {
   const h = setup(on, { enabled: true, contextTokens: 20000, jev: clear })
   await $.turn.start({ text: 'CURRENT REQUEST', turnId: 't1' })
@@ -732,7 +743,7 @@ test('the status line shows the version of a dated model id', async ($, on) => {
   const h = setup(on, { enabled: true, usage: { model: 'claude-sonnet-5-5-20261001' } as any })
   await $.turn.start({ text: 'CURRENT REQUEST', turnId: 't1' })
   await step($, 't1', 0)
-  expect(h.statuses.at(-1)).toBe('🍷 sonnet 5.5·medium')
+  expect(h.statuses.at(-1)).toBe('🍷 sonnet 5.5·medium ▰▱▱▱▱ 0k')
 })
 
 // ticket 06：關卡
