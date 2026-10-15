@@ -614,6 +614,25 @@ test('a record keeps at most 40 characters of the prompt, redacted', async ($, o
   expect(rec.prompt).toContain('[REDACTED]')
 })
 
+test('a record\'s prompt leaves out harness wrappers', async ($, on) => {
+  const h = setup(on, { enabled: true })
+  const cases = [
+    ['<system-reminder>\nYou are operating in a worktree.\n</system-reminder>\n看一下 log', '看一下 log'],
+    ['<system-reminder>\nunclosed reminder', undefined],
+    ['<bash-input>claude plugin update sommeli</bash-input>', 'claude plugin update sommeli'],
+    ['<command-message>tdd</command-message>\n<command-name>/tdd</command-name>', 'tdd /tdd'],
+    ['<agent-message from="a1">報告完成</agent-message>', '[agent] 報告完成'],
+    ['合併 PR', '合併 PR'],
+  ]
+  for (const [i, [text]] of cases.entries()) {
+    await $.turn.start({ text, turnId: 'w' + i })
+    await step($, 'w' + i, 0)
+    await complete($, 'w' + i)
+    await h.clock.advance(10)
+  }
+  expect(records(h.saved).map((r) => r.prompt)).toEqual(cases.map(([, want]) => want))
+})
+
 test('/somm log shows the model that answered and the session it came from', async ($, on) => {
   setup(on, { enabled: true })
   await $.turn.start({ text: 'CURRENT REQUEST', turnId: 't1' })

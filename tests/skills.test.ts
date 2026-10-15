@@ -34,7 +34,7 @@ const TDD = { needs: 0.8, skills: { 'mattpocock-skills:tdd': 0.9, grilling: 0.05
 function setup(
   on,
   opts: {
-    jev?: (body: any, i: number) => any; config?: any; skillConsent?: boolean | null; consent?: boolean
+    jev?: (body: any, i: number) => any; config?: any | null; skillConsent?: boolean | null; consent?: boolean
     answer?: string | null; listed?: string[]; enabled?: boolean
   } = {},
 ) {
@@ -43,7 +43,8 @@ function setup(
   if (opts.enabled !== undefined) saved.set('somm:enabled', opts.enabled)
   if (opts.consent !== false) saved.set('somm:consent', true)
   if (opts.skillConsent !== null) saved.set('somm:consent:skills', opts.skillConsent ?? true)
-  if (opts.config) saved.set('somm:config', opts.config)
+  // Skill hints are off by default; most tests here are about them being on.
+  if (opts.config !== null) saved.set('somm:config', { skills: 'on', ...opts.config })
   const asked: string[] = []
   on('tool.call', ($, e) => {
     const q = e.questions[0]
@@ -191,6 +192,16 @@ test('a hint never changes the rung', async ($, on) => {
   expect(h.sent[0].model).toBe('claude-haiku-5-5')
 })
 
+test('skill hints are off by default: no skill questions, no consent asked, routing goes on', async ($, on) => {
+  const h = setup(on, { config: null, skillConsent: null })
+  expect((await $.command.run({ command: 'somm', args: 'config' })).text).toContain('skills off')
+  await typed($, 't1', '幫 parseDate 加上時區參數，先寫測試')
+  expect(Object.keys(h.fetches[0].questions)).toEqual(['depth', 'new_task', 'high_risk'])
+  expect(h.contexts).toEqual([undefined])
+  expect(h.asked).toEqual([])
+  expect((await $.command.run({ command: 'somm', args: 'config skills on' })).text).toContain('skills on')
+})
+
 test('skills off asks no skill questions and gives no hint, routing goes on', async ($, on) => {
   const h = setup(on)
   expect((await $.command.run({ command: 'somm', args: 'config skills off' })).text).toContain('skills off')
@@ -264,15 +275,25 @@ test('secrets in skill descriptions are redacted before they are sent', async ($
   expect(grilling).not.toContain('sk-abc')
 })
 
-test('a new install is asked once, and agreeing covers skill descriptions too', async ($, on) => {
-  const h = setup(on, { consent: false, skillConsent: null })
+test('a new install is asked once, and the question leaves skills out', async ($, on) => {
+  const h = setup(on, { consent: false, skillConsent: null, config: null })
   await typed($, 't1', '幫 parseDate 加上時區參數，先寫測試')
   expect(h.asked.length).toBe(1)
-  expect(h.asked[0]).toContain('skill 的名稱與描述')
-  expect(h.contexts).toEqual([[HINT_TDD]])
+  expect(h.asked[0]).not.toContain('skill')
+  expect(h.saved.get('somm:consent:skills')).toBe(undefined)
 })
 
-test('those who agreed before skill hints are asked about them once', async ($, on) => {
+test('turning skill hints on asks about skill descriptions once, apart from the first question', async ($, on) => {
+  const h = setup(on, { consent: false, skillConsent: null })
+  await typed($, 't1', '幫 parseDate 加上時區參數，先寫測試')
+  await typed($, 't2', '另外幫 formatMoney 加上幣別，也先寫測試')
+  expect(h.asked.length).toBe(2)
+  expect(h.asked[0]).not.toContain('skill')
+  expect(h.asked[1]).toContain('skill 的名稱與描述')
+  expect(h.contexts[0]).toEqual([HINT_TDD])
+})
+
+test('those who agreed before are asked about skill hints once', async ($, on) => {
   const h = setup(on, { skillConsent: null })
   await typed($, 't1', '幫 parseDate 加上時區參數，先寫測試')
   await typed($, 't2', '另外幫 formatMoney 加上幣別，也先寫測試')

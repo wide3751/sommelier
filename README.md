@@ -145,7 +145,7 @@ Keychain 只有 macOS 才有；Windows 上 key 由 Claude Code 的 plugin 設定
 | `allowed` | haiku-opus | sommelier 可以選的模型範圍，例如 `sonnet-opus` 就不會用 haiku。`somm:` 覆寫不受限制 |
 | `spinner` | on | Claude 工作時 spinner 旁是否顯示這一輪的判斷 |
 | `notify` | important | 跳出重要提示：覆寫或降級要重寫 cache、Jev 連續 3 次判斷失敗、沒有 API key（只提示一次）。同一輪最多一則，10 秒內有好幾則時只補顯示最新的一則；`off` 不跳提示 |
-| `skills` | on | skill 提示的開關。`off` 只關掉 skill 提示，選模型照常運作 |
+| `skills` | off | skill 提示的開關（beta，預設關閉）。`on` 開啟；`off` 只關掉 skill 提示，選模型照常運作 |
 | `skills-allow` | （全部） | 只讓這些 skill 成為候選，逗號分隔，名稱照 `/skills` 列出的寫，例如 `mattpocock-skills:tdd,grilling`；`none` 清空 |
 | `skills-exclude` | （無） | 不提示這些 skill，寫法同上；跟 `skills-allow` 都列了的以排除為準 |
 
@@ -163,7 +163,7 @@ Keychain 只有 macOS 才有；Windows 上 key 由 Claude Code 的 plugin 設定
 - **沿用**：同一個話題判斷較低時、短回覆（例如「好」「繼續」，不送 Jev）、Jev 逾時或回傳錯誤時，維持目前的模型
 - **對話太長不用 haiku**：對話超過 30k tokens 時不會降到 haiku；已經在 haiku 上的對話長到超過這個長度，會改用 sonnet
 
-**skill 提示**：判斷模型的同時，Jev 也會判斷這一句需不需要某個 skill、最適合哪一個。夠有把握時（「需要 skill」≥ 0.30，而且第一名 ≥ 0.5），sommelier 會在這一句旁邊附一段提示給 Claude，例如「這個請求可能適合 skill『tdd』（可能有誤）」。這只是建議，Claude 判斷不適用就會忽略；提示不影響模型。候選是這個 session 裡 Claude 能自己呼叫、而且有描述的 skill，可以用 `skills-allow`、`skills-exclude` 縮小。同一個話題裡同一個 skill 只提示一次，換話題或 `/clear` 後才會再提示。有提示時 spinner 會顯示 `💡tdd`，`/somm log` 會記下 Claude 有沒有採用。開啟 skill 提示時，因為要等 Jev 判斷完才能附上提示，送出 prompt 後會先等 Jev（最多 1.5 秒）。
+**skill 提示**（beta，預設關閉，用 `/somm config skills on` 開啟）：判斷模型的同時，Jev 也會判斷這一句需不需要某個 skill、最適合哪一個。夠有把握時（「需要 skill」≥ 0.30，而且第一名 ≥ 0.5），sommelier 會在這一句旁邊附一段提示給 Claude，例如「這個請求可能適合 skill『tdd』（可能有誤）」。這只是建議，Claude 判斷不適用就會忽略；提示不影響模型。候選是這個 session 裡 Claude 能自己呼叫、而且有描述的 skill，可以用 `skills-allow`、`skills-exclude` 縮小。同一個話題裡同一個 skill 只提示一次，換話題或 `/clear` 後才會再提示。有提示時 spinner 會顯示 `💡tdd`，`/somm log` 會記下 Claude 有沒有採用。開啟 skill 提示時，因為要等 Jev 判斷完才能附上提示，送出 prompt 後會先等 Jev（最多 1.5 秒）。
 
 **以下情況 sommelier 不會改動模型：**
 - 關閉時，或目前專案已停用
@@ -228,7 +228,7 @@ opus·high · 回答 opus · upgrade P=0.02/0.08/0.20/0.70 jev 410ms cache read 
 sommelier 安裝後預設開啟，開啟時會把資料送到 TypeSafe 判斷。第一次送出前會先詢問你是否同意；用 `/somm off` 關閉後就不會送出任何東西。
 
 - **什麼時候送**：每個新請求都會送出；短回覆（去掉空白標點後 8 字以內，例如「好」「繼續」）不送
-- **送出什麼**：這一句請求（最多 2000 字），以及最近 3 輪對話的文字（每則最多 500 字，只保留結尾）；開啟 skill 提示時，另外送出候選 skill 的名稱與描述（每則最多 300 字）。在 skill 提示加入前就同意過的使用者，第一次送出 skill 資料前會再確認一次；不同意只會關掉 skill 提示
+- **送出什麼**：這一句請求（最多 2000 字），以及最近 3 輪對話的文字（每則最多 500 字，只保留結尾）；開啟 skill 提示時，另外送出候選 skill 的名稱與描述（每則最多 300 字）。第一次使用時的確認不包含 skill；開啟 skill 提示後，第一次送出 skill 資料前會另外確認一次，不同意只會關掉 skill 提示
 - **送出前遮蔽**：常見的密鑰格式會換成 `[REDACTED]`，包括 `sk-`、`AKIA`、`ghp_`、`xoxb-`／`xoxp-`、`AIza`、`Bearer`、`password=`、JWT、私鑰區塊，以及 32 字以上的十六進位字串
 - **不送什麼**：檔案內容、工具呼叫與工具輸出、subagent 的請求，以及用 `/somm off --project` 停用的專案
 - **本機紀錄**：`/somm log` 的紀錄存檔位、Jev 的機率、延遲、cache 讀寫量、提示的 skill 與有沒有採用，以及 prompt 的前 40 字（遮蔽後）；停用的專案不存 prompt

@@ -35,7 +35,7 @@ const EFFORT_ORDER = ['low', 'medium', 'high', 'xhigh', 'max']
 // ticket 12 dropped the finer modes.
 export const DEFAULT_SETTINGS = {
   base: DEFAULT_BASE, profile: 'balanced', allowed: { min: 'haiku', max: 'opus' }, spinner: 'on', notify: 'important',
-  skills: 'on', skillsAllow: [], skillsExclude: [],
+  skills: 'off', skillsAllow: [], skillsExclude: [],
 }
 
 // What the routing functions read: thresholds, base, allowed range and ladder.
@@ -217,6 +217,20 @@ export function modelId(model) {
 export function shortModel(id) {
   for (const [name, full] of Object.entries(MODEL_IDS)) if (id === full || id === name) return name
   return id
+}
+
+// The prompt as the user wrote it, for the record: harness wrappers are
+// dropped so the first characters say what was asked. A system-reminder is
+// removed whole (an unclosed one runs to the end), an agent message keeps its
+// text behind "[agent] ", and any other tag is stripped but its text is kept.
+export function promptSummary(text) {
+  const out = String(text)
+    .replace(/<system-reminder>[\s\S]*?(?:<\/system-reminder>|$)/gi, ' ')
+    .replace(/<agent-message\b[^>]*>/gi, '[agent] ')
+    .replace(/<\/?[a-z][a-z0-9-]*(?:\s[^>]*)?>/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+  return out
 }
 
 // The model with its version for display: claude-haiku-5-5 (or one with a
