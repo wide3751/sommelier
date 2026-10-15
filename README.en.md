@@ -140,7 +140,7 @@ On by default after install; there is no need to run `/somm on`. Before a reques
 | `allowed` | haiku-opus | The models sommelier may pick, e.g. `sonnet-opus` never uses haiku. A `somm:` override is not limited |
 | `spinner` | on | Whether the spinner shows this turn's routing while Claude works |
 | `notify` | important | Important notices: an override or downgrade that rewrites the cache, Jev failing 3 times in a row, no API key (shown once). At most one per turn; several within 10 seconds show only the newest once the 10 seconds are up. `off` shows none |
-| `skills` | on | Skill hints on or off. `off` stops skill hints only; model routing goes on |
+| `skills` | off | Skill hints on or off (beta, off by default). `on` turns them on; `off` stops skill hints only, and model routing goes on |
 | `skills-allow` | (all) | Only these skills are candidates, comma separated, named as `/skills` lists them, such as `mattpocock-skills:tdd,grilling`; `none` clears it |
 | `skills-exclude` | (none) | These skills are never hinted, written the same way; a skill in both lists is excluded |
 
@@ -158,7 +158,7 @@ If another plugin already uses `/somm`, the command falls back to `/sommelier`.
 - **Keep**: on the same topic when the judgment is lower, on short replies ("ok", "continue"; not sent to Jev), and when Jev times out or errors, the current model stays
 - **No haiku for long conversations**: a conversation over 30k tokens is not moved down to haiku, and one already on haiku moves to sonnet once it grows past that
 
-**Skill hints**: alongside the model, Jev judges whether the request needs a skill and which one fits best. When it is confident enough ("needs a skill" ≥ 0.30 and the top skill ≥ 0.5), sommelier adds a note for Claude beside the prompt saying the request may suit that skill (it may be wrong). It is only a suggestion: Claude ignores it when it does not fit, and it never changes the model. Candidates are the skills in this session that Claude can call itself and that have a description, narrowed with `skills-allow` and `skills-exclude`. The same skill is hinted once per topic, again only after a new topic or `/clear`. A hint shows as `💡tdd` in the spinner, and `/somm log` records whether Claude took it up. With skill hints on, a prompt waits for Jev (at most 1.5 seconds) after you send it, so the hint can go with it.
+**Skill hints** (beta, off by default; turn on with `/somm config skills on`): alongside the model, Jev judges whether the request needs a skill and which one fits best. When it is confident enough ("needs a skill" ≥ 0.30 and the top skill ≥ 0.5), sommelier adds a note for Claude beside the prompt saying the request may suit that skill (it may be wrong). It is only a suggestion: Claude ignores it when it does not fit, and it never changes the model. Candidates are the skills in this session that Claude can call itself and that have a description, narrowed with `skills-allow` and `skills-exclude`. The same skill is hinted once per topic, again only after a new topic or `/clear`. A hint shows as `💡tdd` in the spinner, and `/somm log` records whether Claude took it up. With skill hints on, a prompt waits for Jev (at most 1.5 seconds) after you send it, so the hint can go with it.
 
 **sommelier leaves the model unchanged when:**
 - it is off, or turned off for the current project

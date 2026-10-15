@@ -35,7 +35,7 @@ const EFFORT_ORDER = ['low', 'medium', 'high', 'xhigh', 'max']
 // ticket 12 dropped the finer modes.
 export const DEFAULT_SETTINGS = {
   base: DEFAULT_BASE, profile: 'balanced', allowed: { min: 'haiku', max: 'opus' }, spinner: 'on', notify: 'important',
-  skills: 'on', skillsAllow: [], skillsExclude: [],
+  skills: 'off', skillsAllow: [], skillsExclude: [],
 }
 
 // What the routing functions read: thresholds, base, allowed range and ladder.
