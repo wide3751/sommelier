@@ -1125,3 +1125,102 @@ test('a held notice is dropped once notify is turned off', async ($, on) => {
   await h.clock.advance(10000)
   expect(h.toasts).toHaveLength(1)
 })
+
+// A plugin update reloads the module in a running session, with no SessionStart:
+// the routing state comes back from the store.
+const KEPT = {
+  at: 1, currentRung: { model: 'sonnet', effort: 'medium' }, judgedTurns: 3, ledger: {}, lastTtl: '1h',
+  seen: { turns: 3, output: 100, fresh: 100 }, fallback: false, launchModel: OPUS, locked: null, hinted: [],
+}
+const sameTopic = () => ({ status: 200, ok: true, headers: {}, text: jevBody([0.1, 0.85, 0.05, 0], 0.05) })
+
+test('the routing state is saved for the session after a main turn', async ($, on) => {
+  const h = setup(on, { enabled: true, jev: sameTopic })
+  await turn($, 't1', 'CURRENT REQUEST')
+  const s = h.saved.get('somm:state:sess1') as any
+  expect(s.currentRung).toEqual({ model: 'sonnet', effort: 'medium' })
+  expect(s.judgedTurns).toBe(1)
+})
+
+test('after a reload the stored state comes back: the rung holds and it is not a new topic', async ($, on) => {
+  const h = setup(on, { enabled: true, jev: sameTopic, contextTokens: 50000 })
+  h.saved.set('somm:state:sess1', KEPT)
+  await turn($, 't1', 'CURRENT REQUEST', SONNET)
+  const rec = records(h.saved)[0]
+  expect(rec.newTopic).toBe(false)
+  expect(rec.rung).toEqual({ model: 'sonnet', effort: 'medium' })
+})
+
+test('after a reload a continuation keeps the stored rung, not the session model', async ($, on) => {
+  const h = setup(on, { enabled: true })
+  h.saved.set('somm:state:sess1', KEPT)
+  await turn($, 't1', '好')
+  expect(records(h.saved)[0].rung).toEqual({ model: 'sonnet', effort: 'medium' })
+  expect(h.sent[0].model).toBe(SONNET)
+})
+
+test('after a reload a manual pick still holds', async ($, on) => {
+  const h = setup(on, { enabled: true })
+  h.saved.set('somm:manual:sess1', SONNET)
+  await turn($, 't1', '看一下 package.json 的 version', SONNET)
+  expect(h.fetches.length).toBe(0)
+  expect(records(h.saved)[0].reason).toBe('manual')
+})
+
+test('a new process starts afresh: SessionStart leaves the stored state alone', async ($, on) => {
+  const h = setup(on, { enabled: true, jev: sameTopic })
+  h.saved.set('somm:state:sess1', KEPT)
+  await $.classic.SessionStart({ source: 'startup', model: OPUS })
+  await turn($, 't1', 'CURRENT REQUEST')
+  expect(records(h.saved)[0].newTopic).toBe(true)
+})
+
+test('the store keeps the routing state of the 20 latest sessions', async ($, on) => {
+  const h = setup(on, { enabled: true })
+  for (let i = 0; i < 25; i++) h.saved.set('somm:state:old' + i, { ...KEPT, at: i })
+  await h.clock.advance(1000)
+  await turn($, 't1', 'CURRENT REQUEST')
+  const kept = [...h.saved.keys()].filter((k) => k.startsWith('somm:state:'))
+  expect(kept.length).toBe(20)
+  expect(kept).toContain('somm:state:sess1')
+  expect(kept).not.toContain('somm:state:old0')
+})
+
+test('after a reload an override lock still holds on the same topic', async ($, on) => {
+  const h = setup(on, { enabled: true, jev: sameTopic, contextTokens: 50000 })
+  const haiku = { model: 'haiku', effort: 'medium' }
+  h.saved.set('somm:state:sess1', { ...KEPT, currentRung: haiku, locked: haiku })
+  await turn($, 't1', 'CURRENT REQUEST')
+  const rec = records(h.saved)[0]
+  expect(rec.reason).toBe('override_locked')
+  expect(rec.rung).toEqual(haiku)
+})
+
+test('an automatic fallback is saved at once and still holds after a reload', async ($, on) => {
+  const h = setup(on, { enabled: true })
+  await $.classic.PostModelSwitch({ ...userSwitch(SONNET, null), source: 'auto' })
+  expect((h.saved.get('somm:state:sess1') as any).fallback).toBe(true)
+})
+
+test('after a reload a stored fallback leaves requests alone', async ($, on) => {
+  const h = setup(on, { enabled: true })
+  h.saved.set('somm:state:sess1', { ...KEPT, fallback: true })
+  await turn($, 't1', '看一下 package.json 的 version', SONNET)
+  expect(h.fetches.length).toBe(0)
+  expect(records(h.saved)[0].reason).toBe('fallback')
+})
+
+test('the cache ledger is kept with the routing state', async ($, on) => {
+  const h = setup(on, { enabled: true, jev: sameTopic })
+  await turn($, 't1', 'CURRENT REQUEST')
+  expect(Object.keys((h.saved.get('somm:state:sess1') as any).ledger)).toEqual(['sonnet'])
+})
+
+test('a /compact right after a reload reads the stored state first, and does not overwrite it with blanks', async ($, on) => {
+  const h = setup(on, { enabled: true, jev: sameTopic, contextTokens: 50000 })
+  h.saved.set('somm:state:sess1', KEPT)
+  await $.classic.SessionStart({ source: 'compact', model: SONNET })
+  await turn($, 't1', 'CURRENT REQUEST', SONNET)
+  expect(records(h.saved)[0].newTopic).toBe(false)
+  expect((h.saved.get('somm:state:sess1') as any).judgedTurns).toBe(4)
+})

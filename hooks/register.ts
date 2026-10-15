@@ -41,6 +41,9 @@ const SKILL_CONSENT_AGREE = '同意，開啟 skill 提示'
 const SKILL_CONSENT_DECLINE = '不同意，關閉 skill 提示'
 const REC_PREFIX = 'somm:rec:'
 const MANUAL_PREFIX = 'somm:manual:'
+const STATE_PREFIX = 'somm:state:'
+// Sessions whose routing state the store keeps; older ones are dropped.
+const STATE_CAP = 20
 const REC_CAP = 500
 const JEV_URL = 'https://api.typesafe.ai/v1/systemone'
 const JEV_TIMEOUT_MS = 1500
@@ -117,6 +120,12 @@ let hinted = []
 const skillByTurn = new Map()
 // The main turn running now, for skill.prompt, which carries no turnId.
 let activeTurn = null
+// Whether this module has its session's routing state: true once a
+// SessionStart is seen (a new process starts afresh, or resumes with only the
+// manual pick), or once the store has been read. A plugin update reloads the
+// module in a running session with no SessionStart, so the first event after
+// it reads back what the store kept.
+let restored = false
 
 function note(text) {
   events.push(text)
@@ -270,9 +279,68 @@ async function userSwitch($, e) {
 
 async function setManual($, model) {
   manual = model
-  const key = MANUAL_PREFIX + (await $.session.id())
+  const sid = await sessionId($)
+  if (!sid) return
+  const key = MANUAL_PREFIX + sid
   if (model) await $.store.set(key, model)
   else await $.store.delete(key)
+}
+
+// The session id, or null where the host has none to give.
+async function sessionId($) {
+  try {
+    return await $.session.id()
+  } catch {
+    return null
+  }
+}
+
+// The routing state that must outlive a module reload, kept per session:
+// each entry reads its variable, and writes it back from what was kept.
+const KEPT_STATE = {
+  currentRung: [() => currentRung, (v) => (currentRung = v ?? null)],
+  judgedTurns: [() => judgedTurns, (v) => (judgedTurns = v ?? 0)],
+  ledger: [() => ledger, (v) => (ledger = v ?? {})],
+  lastTtl: [() => lastTtl, (v) => (lastTtl = v ?? lastTtl)],
+  seen: [() => ({ ...seen }), (v) => Object.assign(seen, v ?? {})],
+  fallback: [() => fallback, (v) => (fallback = v ?? false)],
+  launchModel: [() => launchModel, (v) => (launchModel = v ?? null)],
+  locked: [() => locked, (v) => (locked = v ?? null)],
+  hinted: [() => hinted, (v) => (hinted = v ?? [])],
+  lastShown: [() => lastShown, (v) => (lastShown = v ?? '')],
+}
+
+// Drops the oldest entries under a prefix past the cap; `age` dates each key.
+async function trimStore($, prefix, cap, age) {
+  const keys = (await $.store.keys()).filter((k) => k.startsWith(prefix))
+  if (keys.length <= cap) return
+  const byAge = []
+  for (const k of keys) byAge.push({ k, at: await age(k) })
+  byAge.sort((a, b) => a.at - b.at)
+  for (const { k } of byAge.slice(0, byAge.length - cap)) await $.store.delete(k)
+}
+
+async function saveState($) {
+  const sid = await sessionId($)
+  if (!sid) return
+  const kept = { at: await $.clock.now() }
+  for (const [name, [read]] of Object.entries(KEPT_STATE)) kept[name] = read()
+  await $.store.set(STATE_PREFIX + sid, kept)
+  await trimStore($, STATE_PREFIX, STATE_CAP, async (k) => ((await $.store.get(k)) ?? {}).at ?? 0)
+}
+
+// Reads back what saveState kept for this session, once per module: the
+// manual pick from its own key, the rest from the state key.
+async function restoreState($) {
+  if (restored) return
+  const sid = await sessionId($)
+  if (!sid) return
+  restored = true
+  manual = (await $.store.get(MANUAL_PREFIX + sid)) ?? manual
+  const kept = await $.store.get(STATE_PREFIX + sid)
+  if (!kept) return
+  for (const [name, [, write]] of Object.entries(KEPT_STATE)) write(kept[name])
+  note('state restored for ' + sid.slice(0, 6) + ': ' + (currentRung ? currentRung.model + '·' + currentRung.effort : 'session') + ', ' + judgedTurns + ' judged')
 }
 
 async function apiKey($) {
@@ -500,11 +568,10 @@ function rungText(decision) {
 }
 
 async function writeRecord($, rec) {
-  const sid = await $.session.id()
+  const sid = await sessionId($)
   const at = await $.clock.now()
   await $.store.set(REC_PREFIX + String(at).padStart(14, '0') + ':' + sid, { ...rec, at, session: sid })
-  const keys = (await $.store.keys()).filter((k) => k.startsWith(REC_PREFIX)).sort()
-  for (const k of keys.slice(0, Math.max(0, keys.length - REC_CAP))) await $.store.delete(k)
+  await trimStore($, REC_PREFIX, REC_CAP, (k) => Number(k.slice(REC_PREFIX.length).split(':')[0]))
 }
 
 async function recentRecords($, n) {
@@ -619,12 +686,18 @@ export function register(on, options) {
       model = model ?? (await $.session.model())
     } catch {}
     note('SessionStart source=' + e.source + ' model=' + model)
+    // A reload's first event can be a /compact or /clear: read back what the
+    // store kept before acting on it. /clear already carries the new session
+    // id, so only a manual pick saved under it comes back. startup and resume
+    // begin afresh, as before (resume reads the manual pick below).
+    if (e.source === 'startup' || e.source === 'resume') restored = true
+    else await restoreState($)
     if (e.source === 'startup') launchModel = model
     if (e.source !== 'startup') {
       ledger = markCold(ledger)
       skillCache = null
     }
-    if (e.source === 'resume') manual = (await $.store.get(MANUAL_PREFIX + (await $.session.id()))) ?? manual
+    if (e.source === 'resume') manual = (await $.store.get(MANUAL_PREFIX + (await sessionId($)))) ?? manual
     if (e.source === 'clear') {
       currentRung = null
       locked = null
@@ -639,19 +712,24 @@ export function register(on, options) {
   })
 
   on('classic.PreModelSwitch', async ($, e, next) => {
+    await restoreState($)
     note('PreModelSwitch ' + e.from_model + ' → ' + e.to_model + ' requested=' + e.requested_model + ' source=' + e.source)
     await userSwitch($, e)
+    await saveState($)
     return next(e)
   })
 
   on('classic.PostModelSwitch', async ($, e, next) => {
+    await restoreState($)
     note('PostModelSwitch ' + e.from_model + ' → ' + e.to_model + ' requested=' + e.requested_model + ' source=' + e.source)
     if (e.source === 'auto') fallback = true
     else if (e.source !== 'resume') await userSwitch($, e)
+    await saveState($)
     return next(e)
   })
 
   on('prompt.submit', async ($, e, next) => {
+    await restoreState($)
     const kind = e.origin ? e.origin.kind : 'none'
     // Only the user's own prompt can carry an override; it is stripped before
     // the model sees it.
@@ -662,6 +740,7 @@ export function register(on, options) {
       currentRung = asked.rung
       locked = asked.rung
       judgedTurns += 1
+      await saveState($)
       return { drop: 'sommelier：接下來用 ' + asked.rung.model + '·' + asked.rung.effort + '，到下一個新話題為止' }
     }
     const text = asked ? asked.text : e.text
@@ -685,10 +764,17 @@ export function register(on, options) {
     return next({ ...out, context: [...(e.context ?? []), skillHintText(skill.hint)] })
   })
 
-  on('command.run', { command: COMMAND }, async ($, e) => runCommand($, e))
-  on('command.run', { command: FALLBACK_COMMAND }, async ($, e) => runCommand($, e))
+  on('command.run', { command: COMMAND }, async ($, e) => {
+    await restoreState($)
+    return runCommand($, e)
+  })
+  on('command.run', { command: FALLBACK_COMMAND }, async ($, e) => {
+    await restoreState($)
+    return runCommand($, e)
+  })
 
   on('turn.start', async ($, e, next) => {
+    await restoreState($)
     prompts.set(e.turnId, e.text)
     const seenAt = takeOrigin(e.text)
     const origin = seenAt ? seenAt.kind : null
@@ -764,6 +850,7 @@ export function register(on, options) {
         : {}
       await writeRecord($, { turnId: e.turnId, ...decision, ...usage, ...skillRec, skillsUsed: skillsUsed.length ? skillsUsed : undefined, prompt: summary })
     }
+    if (!e.agentId && t) await saveState($)
     return next(e)
   })
 

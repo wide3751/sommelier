@@ -231,7 +231,7 @@ sommelier 安裝後預設開啟，開啟時會把資料送到 TypeSafe 判斷。
 - **送出什麼**：這一句請求（最多 2000 字），以及最近 3 輪對話的文字（每則最多 500 字，只保留結尾）；開啟 skill 提示時，另外送出候選 skill 的名稱與描述（每則最多 300 字）。第一次使用時的確認不包含 skill；開啟 skill 提示後，第一次送出 skill 資料前會另外確認一次，不同意只會關掉 skill 提示
 - **送出前遮蔽**：常見的密鑰格式會換成 `[REDACTED]`，包括 `sk-`、`AKIA`、`ghp_`、`xoxb-`／`xoxp-`、`AIza`、`Bearer`、`password=`、JWT、私鑰區塊，以及 32 字以上的十六進位字串
 - **不送什麼**：檔案內容、工具呼叫與工具輸出、subagent 的請求，以及用 `/somm off --project` 停用的專案
-- **本機紀錄**：`/somm log` 的紀錄存檔位、Jev 的機率、延遲、cache 讀寫量、提示的 skill 與有沒有採用，以及 prompt 的前 40 字（遮蔽後）；停用的專案不存 prompt
+- **本機紀錄**：`/somm log` 的紀錄存檔位、Jev 的機率、延遲、cache 讀寫量、提示的 skill 與有沒有採用，以及 prompt 的前 40 字（遮蔽後）；停用的專案不存 prompt。另外每個 session 的分派狀態（目前檔位、cache 帳、覆寫鎖定等，不含 prompt）也存在本機，讓更新 plugin 後執行中的 session 能接續；只保留最近 20 個 session
 - **API key**：存在 macOS Keychain（`/plugin configure`），或從環境變數 `TYPESAFE_API_KEY` 讀取
 
 ## 參與開發
