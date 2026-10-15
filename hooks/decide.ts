@@ -222,10 +222,16 @@ export function shortModel(id) {
 // The prompt as the user wrote it, for the record: harness wrappers are
 // dropped so the first characters say what was asked. A system-reminder is
 // removed whole (an unclosed one runs to the end), an agent message keeps its
-// text behind "[agent] ", and any other tag is stripped but its text is kept.
+// text behind "[agent] ", a background task's notice keeps only its summary
+// behind "[task] " (its ids and output path say nothing), and any other tag is
+// stripped but its text is kept.
 export function promptSummary(text) {
   const out = String(text)
     .replace(/<system-reminder>[\s\S]*?(?:<\/system-reminder>|$)/gi, ' ')
+    .replace(/<task-notification>([\s\S]*?)(?:<\/task-notification>|$)/gi, (_, body) => {
+      const summary = /<summary>([\s\S]*?)(?:<\/summary>|$)/i.exec(body)
+      return ' [task] ' + (summary ? summary[1] : '') + ' '
+    })
     .replace(/<agent-message\b[^>]*>/gi, '[agent] ')
     .replace(/<\/?[a-z][a-z0-9-]*(?:\s[^>]*)?>/gi, ' ')
     .replace(/\s+/g, ' ')

@@ -622,6 +622,11 @@ test('a record\'s prompt leaves out harness wrappers', async ($, on) => {
     ['<bash-input>claude plugin update sommeli</bash-input>', 'claude plugin update sommeli'],
     ['<command-message>tdd</command-message>\n<command-name>/tdd</command-name>', 'tdd /tdd'],
     ['<agent-message from="a1">報告完成</agent-message>', '[agent] 報告完成'],
+    [
+      '<task-notification>\n<task-id>binm6cljm</task-id>\n<tool-use-id>toolu_01MQ</tool-use-id>\n<output-file>/tmp/x.output</output-file>\n<status>completed</status>\n<summary>Tests passed</summary>\n</task-notification>',
+      '[task] Tests passed',
+    ],
+    ['<task-notification><task-id>b1</task-id><status>failed</status></task-notification>', '[task]'],
     ['合併 PR', '合併 PR'],
   ]
   for (const [i, [text]] of cases.entries()) {
