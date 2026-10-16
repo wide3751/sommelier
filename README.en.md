@@ -2,7 +2,7 @@
   <img src="assets/logo/logo.png" alt="sommelier: automatic model routing plugin for Claude Code" width="420">
 </p>
 
-[中文](README.md)
+[繁體中文](README.md) | [简体中文](README.zh-CN.md) | [日本語](README.ja.md) | [한국어](README.ko.md)
 
 [![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/Y8H028VWRF)
 

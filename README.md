@@ -2,7 +2,7 @@
   <img src="assets/logo/logo.png" alt="sommelier：Claude Code 自動切換模型的 plugin" width="420">
 </p>
 
-[English](README.en.md)
+[English](README.en.md) | [简体中文](README.zh-CN.md) | [日本語](README.ja.md) | [한국어](README.ko.md)
 
 [![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/Y8H028VWRF)
 
