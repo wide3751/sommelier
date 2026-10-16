@@ -1,6 +1,6 @@
 # Installing sommelier (for AI agents)
 
-You are installing [sommelier](README.en.md), a Claude Code plugin that picks the model and effort for each request. The user should already have set the `TYPESAFE_API_KEY` environment variable themselves; you never need to see the key.
+You are installing [sommelier](README.md), a Claude Code plugin that picks the model and effort for each request. The user should already have set the `TYPESAFE_API_KEY` environment variable themselves; you never need to see the key.
 
 Run these in order. If any step fails, stop and report the error to the user:
 

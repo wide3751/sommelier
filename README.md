@@ -1,87 +1,87 @@
 <p align="center">
-  <img src="assets/logo/logo.png" alt="sommelier：Claude Code 自動切換模型的 plugin" width="420">
+  <img src="assets/logo/logo.png" alt="sommelier: automatic model routing plugin for Claude Code" width="420">
 </p>
 
-[English](README.en.md) | [简体中文](README.zh-CN.md) | [日本語](README.ja.md) | [한국어](README.ko.md)
+English | [繁體中文](README.zh-TW.md) | [简体中文](README.zh-CN.md) | [日本語](README.ja.md) | [한국어](README.ko.md)
 
 [![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/Y8H028VWRF)
 
-# sommelier：Claude Code 自動選模型的 plugin（Claude Code mods）
+# sommelier: automatic model routing for Claude Code (a Claude Code mod)
 
-依任務替 Claude Code 自動挑選「模型 · effort」的 plugin，用 **Claude Code mods**（mods API 的 `turn.step`）實作。簡單的請求交給 **Claude Haiku**，明確的實作交給 **Claude Sonnet**，需要調查或設計的交給 **Claude Opus**，用 **TypeSafe Jev** 分類請求，在不犧牲品質的前提下節省 Claude Code 的用量與額度。
+A **Claude Code plugin**, built on **Claude Code mods** (the mods API's `turn.step`), that picks the model and effort for each task automatically. Quick lookups go to **Claude Haiku**, well-specified changes to **Claude Sonnet**, and investigation or design to **Claude Opus**, with **TypeSafe Jev** classifying each request — saving Claude Code usage without giving up quality.
 
-就像侍酒師依菜色挑酒，sommelier 在你送出每個新請求時，請 [TypeSafe Jev](https://docs.typesafe.ai)（一個回傳機率的分類 API）判斷三件事：**需要多深的推理**、**是不是新話題**、**是不是高風險操作**，再對應到一張可調整的階梯表：
+The way a sommelier picks a wine for each dish, sommelier asks [TypeSafe Jev](https://docs.typesafe.ai) (a classification API that returns probabilities) three questions about each new request — **how much reasoning it needs**, **whether it starts a new task**, and **whether it is a high-risk operation** — and maps the answer onto a configurable ladder:
 
-| 推理深度 | 預設檔位 | 例子 |
+| Reasoning depth | Default rung | Example |
 |---|---|---|
-| L0 查詢或機械性修改 | haiku · medium | 「看一下 package.json 的 version」 |
-| L1 目標和做法都明確 | sonnet · medium | 「幫 parseDate 加上時區參數」 |
-| L2 要先調查或取捨 | `base`（opus · medium） | 「登入偶爾 401，找出原因」 |
-| L3 沒有明確邊界、需要長時間推演 | opus · high | 「設計多租戶權限架構」 |
+| L0 lookup or mechanical edit | haiku · medium | "Check the version in package.json" |
+| L1 clear goal and approach | sonnet · medium | "Add a timezone parameter to parseDate" |
+| L2 needs investigation or trade-offs | `base` (opus · medium) | "Login sometimes returns 401, find out why" |
+| L3 unbounded, needs long deliberation | opus · high | "Design a multi-tenant permission architecture" |
 
-**為什麼不每輪都換模型？** 每個模型各有一份 prompt cache，換模型就要把整段對話重新寫入 cache，同樣消耗額度。所以 sommelier 的原則是：**往上升隨時可以；往下降只在划算時才做**，也就是新話題、而且切換成本低於能省下的額度時。
+**Why not switch models every turn?** Each model keeps its own prompt cache, so switching models means writing the whole conversation into the cache again, which costs usage too. sommelier's rule is: **upgrade any time; downgrade only when it pays off** — on a new task, and only when the switching cost is lower than what it saves.
 
-## 快速開始
+## Quick start
 
 ```bash
 claude plugin marketplace add wide3751/sommelier
 claude plugin install sommelier@sommelier
-# 執行下一行後貼上你的 TypeSafe API key，按 Enter（畫面不會顯示 key）
+# After running the next line, paste your TypeSafe API key and press Enter (the key is not shown)
 read -rs TYPESAFE_API_KEY
-# 把 key 存進 macOS Keychain
+# Store the key in the macOS Keychain
 printf '{"typesafe_api_key":"%s"}' "$TYPESAFE_API_KEY" | claude plugin configure sommelier@sommelier --values-stdin
 ```
 
-API key 到 [TypeSafe console](https://console.typesafe.ai/keys) 建立。如果已經在 `~/.zshrc` 設好 `TYPESAFE_API_KEY`，可以跳過 `read` 那行。
+Create the API key in the [TypeSafe console](https://console.typesafe.ai/keys). If `TYPESAFE_API_KEY` is already set in `~/.zshrc`, skip the `read` line.
 
-重新啟動 Claude Code 就會自動開啟，不用另外設定：
+Restart Claude Code and sommelier is on, with nothing else to set up:
 
-1. 送出一個請求，例如「幫 parseDate 加上時區參數」
-2. spinner 會顯示選到的檔位，例如 `sonnet·medium L1 · 新話題，降級`
+1. Send a request, for example "Add a timezone parameter to parseDate"
+2. The spinner shows the chosen rung, for example `sonnet·medium L1 · 新話題，降級` (new topic, downgrade)
 
-不想用了就輸入 `/somm off`。詳細步驟見[安裝](#安裝)與[使用](#使用)。
+Run `/somm off` to stop. See [Install](#install) and [Usage](#usage) for details.
 
-## 讓 AI agent 幫你安裝
+## Install with an AI agent
 
-先準備好 TypeSafe API key。key 不要交給 agent，自己設定成環境變數：
+Get a TypeSafe API key ready first. Don't hand the key to the agent; set it as an environment variable yourself:
 
-1. 到 [TypeSafe console](https://console.typesafe.ai/keys) 建立 API key
-2. 在終端機執行下面這行，把 `your-api-key` 換成你的 key，寫進 `~/.zshrc`：
+1. Create an API key in the [TypeSafe console](https://console.typesafe.ai/keys)
+2. Run this in a terminal, replacing `your-api-key` with your key, to add it to `~/.zshrc`:
 
    ```bash
    echo 'export TYPESAFE_API_KEY="your-api-key"' >> ~/.zshrc
    ```
 
-3. 重新開啟終端機和 Claude Code，讓新的環境變數生效
+3. Restart your terminal and Claude Code so they pick up the new variable
 
-設定好之後，把這句話貼給 Claude Code 或其他 coding agent：
+Then paste this to Claude Code or any other coding agent:
 
-> 照 https://github.com/wide3751/sommelier/blob/main/INSTALL-AGENT.md 安裝 sommelier
+> Install sommelier by following https://github.com/wide3751/sommelier/blob/main/INSTALL-AGENT.md
 
-## 需求
+## Requirements
 
-- Claude Code **v2.1.287 以上**（終端機），或 Desktop app 內建版本 **v2.1.286 以上**（在 Code tab 輸入 `/status` 查看）
-- TypeSafe API key（到 [TypeSafe console](https://console.typesafe.ai/keys) 建立）
+- Claude Code **v2.1.287 or later** (terminal), or **v2.1.286 or later** bundled in the Desktop app (type `/status` in the Code tab to check)
+- A TypeSafe API key (create one in the [TypeSafe console](https://console.typesafe.ai/keys))
 
-## 安裝
+## Install
 
-1. 加入 marketplace 並安裝。有兩種方式，**建議用 GitHub**：
+1. Add the marketplace and install. There are two ways; **GitHub is recommended**:
 
-   **方式 A：從 GitHub 安裝（建議）**，不用下載專案：
+   **Option A: from GitHub (recommended)** — no need to download the project:
 
 ```bash
 claude plugin marketplace add wide3751/sommelier
 claude plugin install sommelier@sommelier
 ```
 
-   之後要更新到新版本，先更新 marketplace，再更新插件，然後重開 Claude Code（已經裝過時再跑 `install` 不會升級）：
+   To update to a new version later, update the marketplace, then the plugin, and restart Claude Code (running `install` again on an installed plugin does not upgrade it):
 
 ```bash
 claude plugin marketplace update sommelier
 claude plugin update sommelier@sommelier
 ```
 
-   **方式 B：從本機資料夾安裝**，適合已經 clone 專案、想裝自己改過的版本：
+   **Option B: from a local folder** — for when you have cloned the project and want to install your own changes:
 
 ```bash
 git clone https://github.com/wide3751/sommelier.git ~/Projects/sommelier
@@ -89,149 +89,152 @@ claude plugin marketplace add ~/Projects/sommelier
 claude plugin install sommelier@sommelier
 ```
 
-2. 設定 TypeSafe API key（存進 macOS Keychain）。終端機版可以在 session 裡執行 `/plugin configure sommelier@sommelier`；Desktop app 的 Code tab 不會跳出輸入框，請改在終端機執行：
+2. Set your TypeSafe API key (stored in the macOS Keychain). In the terminal you can run `/plugin configure sommelier@sommelier` inside a session. The Desktop app's Code tab does not show an input box, so run this in a terminal instead:
 
 ```bash
-# 執行下一行後貼上你的 TypeSafe API key，按 Enter（畫面不會顯示 key）
+# After running the next line, paste your TypeSafe API key and press Enter (the key is not shown)
 read -rs TYPESAFE_API_KEY
-# 把 key 存進 macOS Keychain
+# Store the key in the macOS Keychain
 printf '{"typesafe_api_key":"%s"}' "$TYPESAFE_API_KEY" | claude plugin configure sommelier@sommelier --values-stdin
 ```
 
-   key 不用寫進指令裡：`read` 會等你貼上，存在這個終端機的 `TYPESAFE_API_KEY` 變數，下一行再把它存進 Keychain，所以 key 不會留在 shell 歷史紀錄。已經在 `~/.zshrc` 設好 `TYPESAFE_API_KEY` 的話，可以跳過 `read` 那行，但要確認目前的 shell 讀得到它（例如新開一個終端機視窗）。也可以只設定環境變數 `TYPESAFE_API_KEY` 當作備援，但從 Dock 開啟的 Desktop app 讀不到 `~/.zshrc`。
+   You don't type the key into the command: `read` waits for you to paste it into this terminal's `TYPESAFE_API_KEY` variable, and the next line stores it in the Keychain, so the key never lands in your shell history. If `TYPESAFE_API_KEY` is already set in `~/.zshrc`, skip the `read` line, but make sure the current shell can see it (for example, open a new terminal window). You can also rely on the `TYPESAFE_API_KEY` environment variable alone as a fallback, but a Desktop app launched from the Dock does not read `~/.zshrc`.
 
-### Windows 安裝
+### Installing on Windows
 
-步驟 1（加入 marketplace 並安裝）的指令在 PowerShell 一樣能用。本機資料夾的方式把路徑換成 Windows 路徑，例如 `claude plugin marketplace add C:\Projects\sommelier`。
+The commands in step 1 (add the marketplace and install) work as-is in PowerShell. For the local-folder option, use a Windows path, for example `claude plugin marketplace add C:\Projects\sommelier`.
 
-步驟 2 的 `read -rs` 在 PowerShell 沒有，改用下面這段，在 PowerShell 執行（Windows PowerShell 5.1 與 PowerShell 7 都能用）：
+`read -rs` in step 2 doesn't exist in PowerShell. Run this instead (works in Windows PowerShell 5.1 and PowerShell 7):
 
 ```powershell
-# 執行下一行後貼上你的 TypeSafe API key，按 Enter（畫面不會顯示 key）
+# After running the next line, paste your TypeSafe API key and press Enter (nothing is echoed)
 $s = Read-Host "TypeSafe API key" -AsSecureString
 $key = [System.Net.NetworkCredential]::new("", $s).Password
-# 交給 Claude Code 存成 plugin 設定
+# Hand it to Claude Code to store as plugin config
 '{"typesafe_api_key":"' + $key + '"}' | claude plugin configure sommelier@sommelier --values-stdin
 Remove-Variable key, s
 ```
 
-Keychain 只有 macOS 才有；Windows 上 key 由 Claude Code 的 plugin 設定保存。想改用環境變數當備援，把 key 永久寫進使用者環境變數（把 `your-api-key` 換成你的 key），再重新開啟終端機和 Claude Code：
+The Keychain is macOS-only; on Windows the key is kept in Claude Code's plugin config. To use an environment variable as a fallback instead, set it permanently as a user variable (replace `your-api-key` with your key), then reopen your terminal and Claude Code:
 
 ```powershell
 [Environment]::SetEnvironmentVariable("TYPESAFE_API_KEY", "your-api-key", "User")
 ```
 
-3. 重新啟動 Claude Code，輸入 `/somm status`，確認顯示「API key 已設定」。
+3. Restart Claude Code, run `/somm status`, and check that it says the API key is set (「API key 已設定」).
 
-## 使用
+## Usage
 
-安裝後預設**開啟**，不用另外輸入 `/somm on`。第一次要把請求送給 TypeSafe 之前，會先跳出確認：同意後就不再詢問；不同意的話，這一輪沿用原本的模型，並關閉 sommelier。
+On by default after install; there is no need to run `/somm on`. Before a request is first sent to TypeSafe, sommelier asks for your consent: agree and it never asks again; decline and that turn keeps the session's model and sommelier turns off.
 
-| 指令 | 說明 |
+| Command | Description |
 |---|---|
-| `/somm on` | 重新開啟。之後你送出的每個請求都會交給 Jev 判斷（短回覆除外） |
-| `/somm off` | 關閉，沿用 session 自己的模型與 effort |
-| `/somm off --project` | 只在目前的專案停用，這個專案的內容不會送出；`/somm on --project` 恢復 |
-| `/somm status` | 顯示開關、此專案是否停用、API key 是否設定、本 session 的檔位 |
-| `/somm log [n]` | 最近 n 筆分派紀錄：選了哪個檔位、Jev 的機率、cache 讀寫量 |
-| `/somm events` | 最近 20 筆狀態事件（換模型、清除或恢復對話、prompt 來源、每輪的分派結果），用來排查 sommelier 為什麼沒換模型 |
-| `/somm config` | 列出目前的設定；`/somm config <名稱> <值>` 修改，立即生效 |
+| `/somm on` | Turn back on. Every prompt you send from then on is judged by Jev (short replies excepted) |
+| `/somm off` | Turn off and keep the session's own model and effort |
+| `/somm off --project` | Turn off for the current project only, so nothing from it is sent; `/somm on --project` undoes it |
+| `/somm status` | Show on/off, whether this project is turned off, whether the API key is set, and this session's rung |
+| `/somm log [n]` | The last n routing records: chosen rung, Jev's probabilities, cache reads and writes |
+| `/somm events` | The last 20 state events (model switches, cleared or resumed conversations, prompt origins, each turn's routing), for finding out why sommelier did not switch |
+| `/somm config` | List the settings; `/somm config <name> <value>` changes one, effective at once |
 
-**設定**（`/somm config <名稱> <值>`）：
+**Settings** (`/somm config <name> <value>`):
 
-| 名稱 | 預設 | 可用的值 |
+| Name | Default | Values |
 |---|---|---|
-| `enabled` | on | on／off，等同 `/somm on`、`/somm off` |
-| `base` | opus | 需要調查或比較的請求（L2）用的檔位，也是高風險請求的最低模型。`haiku`／`sonnet`／`opus`，可加 effort，例如 `opus:high` |
-| `profile` | balanced | `saver`（省額度：較少用 opus、較晚換話題）、`balanced`（平衡）、`quality`（品質優先：較早用 sonnet／opus、haiku 只接 15k 以內的對話）；也可以寫中文名稱 |
-| `allowed` | haiku-opus | sommelier 可以選的模型範圍，例如 `sonnet-opus` 就不會用 haiku。`somm:` 覆寫不受限制 |
-| `spinner` | on | Claude 工作時 spinner 旁是否顯示這一輪的判斷 |
-| `cache` | on | 狀態列是否顯示 cache 量表；`off` 時只顯示模型與 effort |
-| `notify` | important | 跳出重要提示：覆寫或降級要重寫 cache、Jev 連續 3 次判斷失敗、沒有 API key（只提示一次）。同一輪最多一則，10 秒內有好幾則時只補顯示最新的一則；`off` 不跳提示 |
-| `skills` | off | skill 提示的開關（beta，預設關閉）。`on` 開啟；`off` 只關掉 skill 提示，選模型照常運作 |
-| `skills-allow` | （全部） | 只讓這些 skill 成為候選，逗號分隔，名稱照 `/skills` 列出的寫，例如 `mattpocock-skills:tdd,grilling`；`none` 清空 |
-| `skills-exclude` | （無） | 不提示這些 skill，寫法同上；跟 `skills-allow` 都列了的以排除為準 |
+| `enabled` | on | on／off, the same as `/somm on` and `/somm off` |
+| `base` | opus | The rung for requests that need investigation or comparison (L2), and the lowest model for high-risk requests. `haiku`／`sonnet`／`opus`, optionally with effort, e.g. `opus:high` |
+| `profile` | balanced | `saver` (uses opus less, calls a new topic sooner), `balanced`, `quality` (sonnet and opus sooner, haiku only for conversations under 15k) |
+| `allowed` | haiku-opus | The models sommelier may pick, e.g. `sonnet-opus` never uses haiku. A `somm:` override is not limited |
+| `spinner` | on | Whether the spinner shows this turn's routing while Claude works |
+| `cache` | on | Whether the status line shows the cache gauge; `off` shows only the model and effort |
+| `notify` | important | Important notices: an override or downgrade that rewrites the cache, Jev failing 3 times in a row, no API key (shown once). At most one per turn; several within 10 seconds show only the newest once the 10 seconds are up. `off` shows none |
+| `skills` | off | Skill hints on or off (beta, off by default). `on` turns them on; `off` stops skill hints only, and model routing goes on |
+| `skills-allow` | (all) | Only these skills are candidates, comma separated, named as `/skills` lists them, such as `mattpocock-skills:tdd,grilling`; `none` clears it |
+| `skills-exclude` | (none) | These skills are never hinted, written the same way; a skill in both lists is excluded |
 
-開啟後，prompt 下方的狀態列會顯示實際回答的模型、版本與 effort，後面接著 cache 量表，例如 `🍷 opus 5.5·medium ▰▰▱▱▱ 95k`。旁邊 Claude Code 自己顯示的是 session 的模型。
+When on, the status line under the prompt shows the model, its version and the effort that actually answered, followed by the cache gauge, for example `🍷 opus 5.5·medium ▰▰▱▱▱ 95k`. The model Claude Code shows next to it is the session's own.
 
-**cache 量表**：數字是目前模型累積的 cache 量。5 格代表換到 allowed 範圍內下一個較低模型的切換成本（重寫 cache 的費用），佔預估省回額度的多少，每格 20%。格子越滿，換下去越不划算；滿格再加上 `⚠`（例如 `▰▰▰▰▰⚠ 243k`）表示切換成本已經超過省回的額度，sommelier 這時會擋下降級，你自己換也不建議。cache 已過期、或已經是 allowed 內最低的模型時，格子全空。狀態列不能上色，所以用滿格加 `⚠` 當警示。嫌擠可以用 `/somm config cache off` 關掉。
+**Cache gauge**: the number is how much cache the current model has built up. The 5 cells show the switch cost of moving down to the next lower model within `allowed` (the price of rewriting the cache) as a share of the quota that switch is expected to save, 20% per cell. The fuller the cells, the less a switch down pays off; full cells plus `⚠` (for example `▰▰▰▰▰⚠ 243k`) mean the switch costs more than it would save, so sommelier blocks the downgrade and switching yourself is not advised. The cells are empty once the cache has expired, or when you are already on the lowest allowed model. The status line cannot be coloured, so full cells and `⚠` stand in for a red warning. Turn it off with `/somm config cache off` if the line feels crowded.
 
-<img src="assets/status-line/status-line.png" alt="狀態列 cache 量表在四種情境下的樣子（示意圖）" width="640">
+<img src="assets/status-line/status-line.en.png" alt="The status line cache gauge in four situations (illustration)" width="640">
 
-<sub>示意圖：剛開始的對話、對話變長、不建議轉換模型、已在最低的模型。</sub>
+<sub>Illustration: a fresh conversation, a longer one, switching no longer pays, already on the lowest model.</sub>
 
-`/somm` 如果被其他 plugin 占用，會自動改用 `/sommelier`。
+If another plugin already uses `/somm`, the command falls back to `/sommelier`.
 
-**自己指定模型（覆寫）**：在 prompt 開頭寫 `somm:opus`、`somm:sonnet` 或 `somm:haiku`（不分大小寫），這一句就用指定的模型（effort medium），不送 Jev。前綴會先拿掉，模型看不到。之後同一個話題都沿用這個模型，直到 Jev 判斷出新話題、`/clear` 或你用 `/model` 換模型為止。只寫前綴、不寫內容時不會送出任何東西，只設定接下來要用的模型。換模型要重寫 cache 時，會跳出提示說明要重寫多少 token、大約多少錢。
+**Picking the model yourself (override)**: start a prompt with `somm:opus`, `somm:sonnet` or `somm:haiku` (any case) and that request uses that model (medium effort) without asking Jev. The prefix is removed before the model sees the prompt. The same model stays for the rest of the topic, until Jev sees a new topic, you `/clear`, or you switch with `/model`. A prefix with nothing after it sends nothing and only sets the model for what follows. When the switch rewrites the cache, a notice says how many tokens and roughly what it costs.
 
-**每個請求怎麼決定：**
-- **升級**：判斷需要較強的模型或較高的 effort 時，隨時往上換
-- **高風險**：會刪除或覆寫資料、改正式環境或權限的請求，模型至少換到 base（預設 opus），這一句 effort 提高為 high，下一句恢復原本的 effort
-- **要求深入思考**：prompt 裡有 `ultrathink`、「仔細想」或「深入想」（程式碼區塊內不算）時直接用 opus · high，不送 Jev
-- **降級**：只在新話題、而且預估省下的額度大於重寫 cache 的成本時才往下換；否則這一句沿用目前的模型
-- **沿用**：同一個話題判斷較低時、短回覆（例如「好」「繼續」，不送 Jev）、Jev 逾時或回傳錯誤時，維持目前的模型
-- **對話太長不用 haiku**：對話超過 30k tokens 時不會降到 haiku；已經在 haiku 上的對話長到超過這個長度，會改用 sonnet
+**How each request is decided:**
+- **Upgrade**: whenever a request needs a stronger model or higher effort, it moves up
+- **High risk**: a request that deletes or overwrites data, or changes production or permissions, moves to at least base (opus by default), with high effort for that request only
+- **Asking for deep thought**: a prompt containing `ultrathink`, 「仔細想」 or 「深入想」 (not inside code) goes straight to opus · high without asking Jev
+- **Downgrade**: only on a new topic, and only when the expected saving beats the cost of rewriting the cache; otherwise that request keeps the current model
+- **Keep**: on the same topic when the judgment is lower, on short replies ("ok", "continue"; not sent to Jev), and when Jev times out or errors, the current model stays
+- **No haiku for long conversations**: a conversation over 30k tokens is not moved down to haiku, and one already on haiku moves to sonnet once it grows past that
 
-**skill 提示**（beta，預設關閉，用 `/somm config skills on` 開啟）：判斷模型的同時，Jev 也會判斷這一句需不需要某個 skill、最適合哪一個。夠有把握時（「需要 skill」≥ 0.30，而且第一名 ≥ 0.5），sommelier 會在這一句旁邊附一段提示給 Claude，例如「這個請求可能適合 skill『tdd』（可能有誤）」。這只是建議，Claude 判斷不適用就會忽略；提示不影響模型。候選是這個 session 裡 Claude 能自己呼叫、而且有描述的 skill，可以用 `skills-allow`、`skills-exclude` 縮小。同一個話題裡同一個 skill 只提示一次，換話題或 `/clear` 後才會再提示。有提示時 spinner 會顯示 `💡tdd`，`/somm log` 會記下 Claude 有沒有採用。開啟 skill 提示時，因為要等 Jev 判斷完才能附上提示，送出 prompt 後會先等 Jev（最多 1.5 秒）。
+**Skill hints** (beta, off by default; turn on with `/somm config skills on`): alongside the model, Jev judges whether the request needs a skill and which one fits best. When it is confident enough ("needs a skill" ≥ 0.30 and the top skill ≥ 0.5), sommelier adds a note for Claude beside the prompt saying the request may suit that skill (it may be wrong). It is only a suggestion: Claude ignores it when it does not fit, and it never changes the model. Candidates are the skills in this session that Claude can call itself and that have a description, narrowed with `skills-allow` and `skills-exclude`. The same skill is hinted once per topic, again only after a new topic or `/clear`. A hint shows as `💡tdd` in the spinner, and `/somm log` records whether Claude took it up. With skill hints on, a prompt waits for Jev (at most 1.5 seconds) after you send it, so the hint can go with it.
 
-### 能選的模型與 skill
+### Models and skills it can choose
 
-**模型**：sommelier 只會在下面三個模型之間挑選，effort 只用 medium 或 high。
+**Models**: sommelier picks only among the three models below, and only medium or high effort.
 
-| 模型 | 送出的模型 ID | sommelier 何時選它 |
+| Model | Model ID sent | When sommelier picks it |
 |---|---|---|
-| haiku | `claude-haiku-5-5` | L0；對話超過 30k tokens 時不用 |
-| sonnet | `claude-sonnet-5-5` | L1；haiku 的對話變長時也改用它 |
-| opus | `claude-opus-5-5` | L2（base，medium）、L3、要求深入思考（high）；高風險請求至少用 base |
+| haiku | `claude-haiku-5-5` | L0; not once the conversation is past 30k tokens |
+| sonnet | `claude-sonnet-5-5` | L1; also when a haiku conversation grows too long |
+| opus | `claude-opus-5-5` | L2 (base, medium), L3 and requests for deep thought (high); high-risk requests use at least base |
 
-帶日期後綴的 ID（例如 `claude-sonnet-5-5-20261001`）也認得。要改變能選的範圍：
+IDs with a date suffix (for example `claude-sonnet-5-5-20261001`) are recognized too. To change what it can choose:
 
-- **縮小範圍**：`/somm config allowed sonnet-opus` 就不會用 haiku；`opus-opus` 等於只用 opus
-- **換 L2 的檔位**：`/somm config base sonnet` 或 `opus:high`，任一模型都可以加 medium／high，但要在 `allowed` 範圍內
-- **這個話題指定模型**：prompt 開頭寫 `somm:haiku`、`somm:sonnet`、`somm:opus`（effort 固定 medium，不受 `allowed` 限制）
-- **完全自己決定**：用 `/model` 換 session 的模型，sommelier 在你換回 Default 之前都不改動模型
+- **Narrow the range**: `/somm config allowed sonnet-opus` never uses haiku; `opus-opus` means opus only
+- **Change the L2 rung**: `/somm config base sonnet` or `opus:high`; any model with medium or high, within `allowed`
+- **Pick a model for this topic**: start a prompt with `somm:haiku`, `somm:sonnet` or `somm:opus` (effort is medium; `allowed` does not apply)
+- **Decide entirely yourself**: switch the session model with `/model`; sommelier leaves the model alone until you pick Default again
 
-**skill**（skill 提示開啟時）：能被提示的候選 skill 由這個 session 決定，不需要另外登記。
+**Skills** (with skill hints on): the candidates come from the session itself; there is nothing to register.
 
-- **哪些會成為候選**：Claude 能自己呼叫、而且有描述的 skill，也就是 `/skills` 列出、沒有被設成只能手動呼叫的那些。plugin 的 skill 寫成 `plugin名:skill名`，例如 `mattpocock-skills:tdd`
-- **數量**：依名稱排序，最多 255 個，超過的略過；少於 2 個時不會問 Jev skill 的題目
-- **只提示某幾個**：`/somm config skills-allow mattpocock-skills:tdd,grilling`；`none` 清空，恢復全部
-- **排除某幾個**：`/somm config skills-exclude cost-today`；同時出現在兩份清單時以排除為準
-- **確認效果**：`/somm log` 會記下每一句提示了哪個 skill、Claude 有沒有採用
+- **Which become candidates**: skills Claude can call itself and that have a description, that is the ones `/skills` lists that are not manual-only. A plugin's skill is written `plugin:skill`, for example `mattpocock-skills:tdd`
+- **How many**: sorted by name, at most 255, the rest left out; with fewer than 2, Jev is not asked the skill questions
+- **Hint only some**: `/somm config skills-allow mattpocock-skills:tdd,grilling`; `none` clears it back to all
+- **Leave some out**: `/somm config skills-exclude cost-today`; a skill on both lists is excluded
+- **See the effect**: `/somm log` records which skill each sentence was hinted and whether Claude took it up
 
-**以下情況 sommelier 不會改動模型：**
-- 關閉時，或目前專案已停用
-- 第一次送出前的確認沒有同意
-- session 的第一句 Jev 就失敗，或沒有設定 API key（之後的句子失敗則沿用目前的模型）
-- subagent 的請求
+**sommelier leaves the model unchanged when:**
+- it is off, or turned off for the current project
+- you did not agree to the consent question before the first send
+- Jev fails on the session's first request, or no API key is set (a later failure keeps the current model)
+- the request comes from a subagent
 
-### 範例
+### Examples
 
-開啟後送出「幫 parseDate 加上時區參數」，Jev 判斷為 L1，從 session 的 opus 降到 sonnet，spinner 會顯示：
+The plugin's messages are currently in Chinese; translations are in the comments.
 
-```
-sonnet·medium L1 · 新話題，降級
-```
-
-接著回「好」，短回覆不送 Jev，沿用同一個檔位：
+Turn it on and send "Add a timezone parameter to parseDate". Jev judges it L1, the session's opus moves down to sonnet, and the spinner shows:
 
 ```
-sonnet·medium · 沿用
+sonnet·medium L1 · 新話題，降級   # new topic, downgrade
 ```
 
-再要求「設計多租戶權限架構」，Jev 判斷為 L3，升級：
+Reply "ok": short replies are not sent to Jev and keep the same rung:
 
 ```
-opus·high L3 · 升級
+sonnet·medium · 沿用             # kept
 ```
 
-`/somm status`：
+Then ask "Design a multi-tenant permission architecture". Jev judges it L3 and it moves up:
+
+```
+opus·high L3 · 升級              # upgrade
+```
+
+`/somm status`:
 
 ```
 sommelier 開啟｜API key 已設定｜本 session 檔位 sonnet·medium
+# sommelier on | API key set | this session's rung sonnet·medium
 ```
 
-`/somm log 3`：P 是 Jev 判斷為 L0／L1／L2／L3 的機率；`session` 表示這一輪用 session 自己的模型；「回答」是實際回答的模型，方括號是 session 的前六碼：
+`/somm log 3` — P is Jev's probability for L0/L1/L2/L3; a turn where judging failed shows `session` and keeps the original model; "回答" is the model that actually answered, and the brackets hold the first six characters of the session id:
 
 ```
 sonnet·medium · 回答 sonnet · downgrade P=0.05/0.90/0.05/0.00 jev 820ms cache read 0 write 18342 [a1b2c3]
@@ -239,43 +242,43 @@ sonnet·medium · 回答 sonnet · continuation cache read 18342 write 1204 [a1b
 opus·high · 回答 opus · upgrade P=0.02/0.08/0.20/0.70 jev 410ms cache read 0 write 21530 [a1b2c3]
 ```
 
-## 限制
+## Limitations
 
-- **手動 `/model`**：用 `/model` 換模型之後，sommelier 就不再改模型，`/clear` 和恢復對話之後也一樣，直到你在 `/model` 選回 Default。Claude Code 自動 fallback 到其他模型之後也會停手，直到你手動 `/model`。
-- **不判斷的輪**：通知、排程、其他 session 或其他 plugin 送來的訊息，以及 slash 指令，都沿用目前的模型，不送給 Jev。session 模型不是 Opus／Sonnet／Haiku 5.5（例如 `[1m]` 版本或舊版）時，sommelier 不做任何改變。
-- **不划算就不降級**：每個模型各有一份 cache，換模型要把對話寫進新模型的 cache。sommelier 會記下每個模型的 cache 涵蓋到哪裡：切到從沒用過、或閒置超過 cache 時效的模型要整段重寫；切回剛用過的模型只補差額；`/clear`、compact、resume 之後只剩系統提示還在 cache 裡。往下降時比較「重寫成本」和「預估 3 輪能省回的錢」，省不回來就這一句沿用原模型，下一個新話題再重新評估。往上升不受影響。價格用的是官方定價，寫在 `hooks/decide.ts`。
-- **模型選單顯示的是 session 模型**：sommelier 改的是每個送出的請求，不改 session 本身的模型，所以 `/model` 和 Desktop 的模型選單一直顯示原本的模型。實際回答的模型看狀態列 🍷 後面的模型。
-- **Jev 判斷要時間**：每個請求的判斷最多等 1.5 秒（離線評測 p95 約 0.4 秒），短回覆不送 Jev、不用等。
-- **Desktop app**：Code tab 不能用 `/plugin configure` 輸入 API key，要改在終端機設定（見「安裝」）。
+- **Manual `/model`**: once you switch models with `/model`, sommelier stops changing the model, across `/clear` and resume too, until you pick Default in `/model`. After Claude Code falls back to another model on its own, sommelier also stands back until you run `/model` yourself.
+- **Turns that are not judged**: messages from notifications, schedules, other sessions or other plugins, and slash commands, keep the current model and are not sent to Jev. When the session model is not Opus, Sonnet or Haiku 5.5 (a `[1m]` variant or an older version, say), sommelier changes nothing.
+- **No downgrade that doesn't pay**: each model has its own cache, so a switch writes the conversation into the new model's cache. sommelier keeps track of how far each model's cache reaches: a model never used, or idle past the cache TTL, needs the whole conversation rewritten; going back to a model used moments ago only adds what is new; after `/clear`, compact or resume only the system prompt is still cached. Before a downgrade it weighs that rewrite against what about 3 turns on the cheaper model would save. If it doesn't pay, that request keeps the current model and the next new topic is weighed again. Upgrades are unaffected. Prices are the list prices in `hooks/decide.ts`.
+- **The model picker shows the session model**: sommelier changes each request it sends, not the session's own model, so `/model` and the Desktop model picker keep showing the original. The model after 🍷 in the status line is the one that actually answered.
+- **Judging takes time**: each request's judgment waits up to 1.5 s (offline eval p95 about 0.4 s); short replies are not sent and do not wait.
+- **Desktop app**: the Code tab cannot take the API key through `/plugin configure`; set it from a terminal instead (see Install).
 
-## 疑難排解
+## Troubleshooting
 
-| 症狀 | 做法 |
+| Symptom | What to do |
 |---|---|
-| `/somm status` 顯示「API key 未設定」 | 照「安裝」第 2 步重新設定。只靠環境變數的話，確認啟動 Claude Code 的 shell 讀得到 `TYPESAFE_API_KEY`；從 Dock 開啟的 Desktop app 讀不到 `~/.zshrc` |
-| spinner 顯示「Jev 失敗」 | 用 `/somm log` 看原因：`no_key` 是沒有 key，`timeout` 是超過 1.5 秒，`http_401` 等是 API 回傳錯誤，`fetch_failed` 是連不上 TypeSafe。這一輪沿用目前的模型；session 第一句就失敗時用 session 自己的模型 |
-| `/somm` 指令不見了 | 被其他 plugin 占用，改用 `/sommelier` |
-| 改了程式碼沒有生效 | 正式安裝版依 `plugin.json` 的 `version` 快取。版本號加一後執行 `claude plugin update sommelier@sommelier` 並重開，或開發時改用 `--plugin-dir` |
+| `/somm status` says the API key is not set (「API key 未設定」) | Redo step 2 of Install. If you rely on the environment variable only, make sure the shell that starts Claude Code can see `TYPESAFE_API_KEY`; a Desktop app launched from the Dock does not read `~/.zshrc` |
+| The spinner shows `Jev 失敗` (Jev failed) | Check `/somm log` for the reason: `no_key` means no key, `timeout` means it took over 1.5 s, `http_401` and similar are API errors, `fetch_failed` means TypeSafe could not be reached. That turn keeps the current model; if the session's first request fails, it uses the session's own model |
+| `/somm` is missing | Another plugin took it; use `/sommelier` |
+| Code changes have no effect | Installed copies are cached by the `version` in `plugin.json`. Bump the version, run `claude plugin update sommelier@sommelier` and restart, or use `--plugin-dir` while developing |
 
-## 隱私與資料
+## Privacy and data
 
-sommelier 安裝後預設開啟，開啟時會把資料送到 TypeSafe 判斷。第一次送出前會先詢問你是否同意；用 `/somm off` 關閉後就不會送出任何東西。
+sommelier is on by default after install, and while on it sends data to TypeSafe for judging. It asks for your consent before the first send; once you run `/somm off`, nothing is sent.
 
-- **什麼時候送**：每個新請求都會送出；短回覆（去掉空白標點後 8 字以內，例如「好」「繼續」）不送
-- **送出什麼**：這一句請求（最多 2000 字），以及最近 3 輪對話的文字（每則最多 500 字，只保留結尾）；開啟 skill 提示時，另外送出候選 skill 的名稱與描述（每則最多 300 字）。第一次使用時的確認不包含 skill；開啟 skill 提示後，第一次送出 skill 資料前會另外確認一次，不同意只會關掉 skill 提示
-- **送出前遮蔽**：常見的密鑰格式會換成 `[REDACTED]`，包括 `sk-`、`AKIA`、`ghp_`、`xoxb-`／`xoxp-`、`AIza`、`Bearer`、`password=`、JWT、私鑰區塊，以及 32 字以上的十六進位字串
-- **不送什麼**：檔案內容、工具呼叫與工具輸出、subagent 的請求，以及用 `/somm off --project` 停用的專案
-- **本機紀錄**：`/somm log` 的紀錄存檔位、Jev 的機率、延遲、cache 讀寫量、提示的 skill 與有沒有採用，以及 prompt 的前 40 字（遮蔽後）；停用的專案不存 prompt。另外每個 session 的分派狀態（目前檔位、cache 帳、覆寫鎖定等，不含 prompt）也存在本機，讓更新 plugin 後執行中的 session 能接續；只保留最近 20 個 session
-- **API key**：存在 macOS Keychain（`/plugin configure`），或從環境變數 `TYPESAFE_API_KEY` 讀取
+- **When**: every new request; short replies (8 characters or fewer once spaces and punctuation are stripped, such as "ok" or "continue") are not sent
+- **What is sent**: the current request (up to 2,000 characters) and the text of the last 3 turns (up to 500 characters each, keeping the end); with skill hints on, also the names and descriptions of the candidate skills (up to 300 characters each). The first-use question leaves skills out; once skill hints are on, you are asked separately before skill data is first sent, and declining turns skill hints off only
+- **Masked before sending**: common secret formats become `[REDACTED]`: `sk-`, `AKIA`, `ghp_`, `xoxb-`/`xoxp-`, `AIza`, `Bearer`, `password=`, JWTs, private key blocks, and hex strings of 32 or more characters
+- **What is not sent**: file contents, tool calls and tool output, subagent requests, and projects turned off with `/somm off --project`
+- **Local records**: `/somm log` records store the rung, Jev's probabilities, latency, cache reads and writes, the hinted skill and whether it was taken up, and the first 40 characters of the prompt (masked); turned-off projects store no prompt. Each session's routing state (current rung, cache ledger, override lock and so on, no prompt) is also kept locally so a running session carries on after a plugin update; only the latest 20 sessions are kept
+- **API key**: stored in the macOS Keychain (`/plugin configure`), or read from the `TYPESAFE_API_KEY` environment variable
 
-## 參與開發
+## Contributing
 
-開發環境、離線評測與專案結構見 [CONTRIBUTING.md](CONTRIBUTING.md)。
+See [CONTRIBUTING.md](CONTRIBUTING.md) (in Chinese) for the development setup, offline evaluation, and project layout.
 
-## 文件
+## Docs
 
-- [GLOSSARY.md](GLOSSARY.md)：用語定義（檔位、新話題、cache 帳…）
+- [GLOSSARY.md](GLOSSARY.md): terminology (rung, new task, cache ledger…)
 
-## 授權
+## License
 
 [MIT](LICENSE)
