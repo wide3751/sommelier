@@ -172,6 +172,31 @@ Keychain 只有 macOS 才有；Windows 上 key 由 Claude Code 的 plugin 設定
 
 **skill 提示**（beta，預設關閉，用 `/somm config skills on` 開啟）：判斷模型的同時，Jev 也會判斷這一句需不需要某個 skill、最適合哪一個。夠有把握時（「需要 skill」≥ 0.30，而且第一名 ≥ 0.5），sommelier 會在這一句旁邊附一段提示給 Claude，例如「這個請求可能適合 skill『tdd』（可能有誤）」。這只是建議，Claude 判斷不適用就會忽略；提示不影響模型。候選是這個 session 裡 Claude 能自己呼叫、而且有描述的 skill，可以用 `skills-allow`、`skills-exclude` 縮小。同一個話題裡同一個 skill 只提示一次，換話題或 `/clear` 後才會再提示。有提示時 spinner 會顯示 `💡tdd`，`/somm log` 會記下 Claude 有沒有採用。開啟 skill 提示時，因為要等 Jev 判斷完才能附上提示，送出 prompt 後會先等 Jev（最多 1.5 秒）。
 
+### 能選的模型與 skill
+
+**模型**：sommelier 只會在下面三個模型之間挑選，effort 只用 medium 或 high。
+
+| 模型 | 送出的模型 ID | sommelier 何時選它 |
+|---|---|---|
+| haiku | `claude-haiku-5-5` | L0；對話超過 30k tokens 時不用 |
+| sonnet | `claude-sonnet-5-5` | L1；haiku 的對話變長時也改用它 |
+| opus | `claude-opus-5-5` | L2（base，medium）、L3、要求深入思考（high）；高風險請求至少用 base |
+
+帶日期後綴的 ID（例如 `claude-sonnet-5-5-20261001`）也認得。要改變能選的範圍：
+
+- **縮小範圍**：`/somm config allowed sonnet-opus` 就不會用 haiku；`opus-opus` 等於只用 opus
+- **換 L2 的檔位**：`/somm config base sonnet` 或 `opus:high`，任一模型都可以加 medium／high，但要在 `allowed` 範圍內
+- **這個話題指定模型**：prompt 開頭寫 `somm:haiku`、`somm:sonnet`、`somm:opus`（effort 固定 medium，不受 `allowed` 限制）
+- **完全自己決定**：用 `/model` 換 session 的模型，sommelier 在你換回 Default 之前都不改動模型
+
+**skill**（skill 提示開啟時）：能被提示的候選 skill 由這個 session 決定，不需要另外登記。
+
+- **哪些會成為候選**：Claude 能自己呼叫、而且有描述的 skill，也就是 `/skills` 列出、沒有被設成只能手動呼叫的那些。plugin 的 skill 寫成 `plugin名:skill名`，例如 `mattpocock-skills:tdd`
+- **數量**：依名稱排序，最多 255 個，超過的略過；少於 2 個時不會問 Jev skill 的題目
+- **只提示某幾個**：`/somm config skills-allow mattpocock-skills:tdd,grilling`；`none` 清空，恢復全部
+- **排除某幾個**：`/somm config skills-exclude cost-today`；同時出現在兩份清單時以排除為準
+- **確認效果**：`/somm log` 會記下每一句提示了哪個 skill、Claude 有沒有採用
+
 **以下情況 sommelier 不會改動模型：**
 - 關閉時，或目前專案已停用
 - 第一次送出前的確認沒有同意
