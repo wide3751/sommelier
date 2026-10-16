@@ -4,6 +4,8 @@
 
 [English](README.md) | [繁體中文](README.zh-TW.md) | [简体中文](README.zh-CN.md) | 日本語 | [한국어](README.ko.md)
 
+[![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/Y8H028VWRF)
+
 # sommelier：Claude Code の自動モデルルーティング（Claude Code mod）
 
 **Claude Code mods**（mods API の `turn.step`）上に構築された **Claude Code プラグイン**で、タスクごとにモデルと effort を自動で選びます。ちょっとした確認は **Claude Haiku** に、仕様が明確な変更は **Claude Sonnet** に、調査や設計は **Claude Opus** に振り分け、各リクエストの分類は **TypeSafe Jev** が行います。品質を落とさずに Claude Code の使用量を節約できます。

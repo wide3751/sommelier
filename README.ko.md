@@ -4,6 +4,8 @@
 
 [English](README.md) | [繁體中文](README.zh-TW.md) | [简体中文](README.zh-CN.md) | [日本語](README.ja.md) | 한국어
 
+[![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/Y8H028VWRF)
+
 # sommelier: Claude Code용 자동 모델 라우팅 (Claude Code mod)
 
 **Claude Code mods**(mods API의 `turn.step`)를 기반으로 만든 **Claude Code 플러그인**으로, 작업마다 모델과 effort를 자동으로 고릅니다. 간단한 조회는 **Claude Haiku**에, 요구 사항이 명확한 변경은 **Claude Sonnet**에, 조사나 설계는 **Claude Opus**에 맡기며, 각 요청의 분류는 **TypeSafe Jev**가 담당합니다. 품질을 포기하지 않으면서 Claude Code 사용량을 아낄 수 있습니다.

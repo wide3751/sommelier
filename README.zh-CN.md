@@ -4,6 +4,8 @@
 
 [English](README.md) | [繁體中文](README.zh-TW.md) | 简体中文 | [日本語](README.ja.md) | [한국어](README.ko.md)
 
+[![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/Y8H028VWRF)
+
 # sommelier：Claude Code 自动选模型的 plugin（Claude Code mods）
 
 按任务为 Claude Code 自动挑选「模型 · effort」的 plugin，用 **Claude Code mods**（mods API 的 `turn.step`）实现。简单的请求交给 **Claude Haiku**，明确的实现交给 **Claude Sonnet**，需要调查或设计的交给 **Claude Opus**，用 **TypeSafe Jev** 对请求分类，在不牺牲质量的前提下节省 Claude Code 的用量与额度。
