@@ -172,6 +172,31 @@ If another plugin already uses `/somm`, the command falls back to `/sommelier`.
 
 **Skill hints** (beta, off by default; turn on with `/somm config skills on`): alongside the model, Jev judges whether the request needs a skill and which one fits best. When it is confident enough ("needs a skill" ≥ 0.30 and the top skill ≥ 0.5), sommelier adds a note for Claude beside the prompt saying the request may suit that skill (it may be wrong). It is only a suggestion: Claude ignores it when it does not fit, and it never changes the model. Candidates are the skills in this session that Claude can call itself and that have a description, narrowed with `skills-allow` and `skills-exclude`. The same skill is hinted once per topic, again only after a new topic or `/clear`. A hint shows as `💡tdd` in the spinner, and `/somm log` records whether Claude took it up. With skill hints on, a prompt waits for Jev (at most 1.5 seconds) after you send it, so the hint can go with it.
 
+### Models and skills it can choose
+
+**Models**: sommelier picks only among the three models below, and only medium or high effort.
+
+| Model | Model ID sent | When sommelier picks it |
+|---|---|---|
+| haiku | `claude-haiku-5-5` | L0; not once the conversation is past 30k tokens |
+| sonnet | `claude-sonnet-5-5` | L1; also when a haiku conversation grows too long |
+| opus | `claude-opus-5-5` | L2 (base, medium), L3 and requests for deep thought (high); high-risk requests use at least base |
+
+IDs with a date suffix (for example `claude-sonnet-5-5-20261001`) are recognized too. To change what it can choose:
+
+- **Narrow the range**: `/somm config allowed sonnet-opus` never uses haiku; `opus-opus` means opus only
+- **Change the L2 rung**: `/somm config base sonnet` or `opus:high`; any model with medium or high, within `allowed`
+- **Pick a model for this topic**: start a prompt with `somm:haiku`, `somm:sonnet` or `somm:opus` (effort is medium; `allowed` does not apply)
+- **Decide entirely yourself**: switch the session model with `/model`; sommelier leaves the model alone until you pick Default again
+
+**Skills** (with skill hints on): the candidates come from the session itself; there is nothing to register.
+
+- **Which become candidates**: skills Claude can call itself and that have a description, that is the ones `/skills` lists that are not manual-only. A plugin's skill is written `plugin:skill`, for example `mattpocock-skills:tdd`
+- **How many**: sorted by name, at most 255, the rest left out; with fewer than 2, Jev is not asked the skill questions
+- **Hint only some**: `/somm config skills-allow mattpocock-skills:tdd,grilling`; `none` clears it back to all
+- **Leave some out**: `/somm config skills-exclude cost-today`; a skill on both lists is excluded
+- **See the effect**: `/somm log` records which skill each sentence was hinted and whether Claude took it up
+
 **sommelier leaves the model unchanged when:**
 - it is off, or turned off for the current project
 - you did not agree to the consent question before the first send

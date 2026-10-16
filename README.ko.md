@@ -172,6 +172,31 @@ Remove-Variable key, s
 
 **스킬 힌트**(베타, 기본값은 꺼짐. `/somm config skills on`으로 켭니다): 모델과 함께 Jev가 요청에 스킬이 필요한지, 어떤 스킬이 가장 잘 맞는지 판정합니다. 충분히 확신할 때("스킬 필요" ≥ 0.30이고 1순위 스킬 ≥ 0.5) sommelier는 프롬프트 옆에 Claude를 위한 메모를 덧붙여, 요청이 그 스킬에 맞을 수 있다고(틀릴 수도 있다고) 알립니다. 어디까지나 제안일 뿐이어서, 맞지 않으면 Claude는 무시하며 모델은 절대 바꾸지 않습니다. 후보는 이 세션에서 Claude가 직접 호출할 수 있고 설명이 있는 스킬이며, `skills-allow`와 `skills-exclude`로 좁힙니다. 같은 스킬은 주제당 한 번만 힌트로 제시되며, 새 주제가 되거나 `/clear`한 뒤에야 다시 제시됩니다. 힌트는 스피너에 `💡tdd`처럼 표시되고, `/somm log`에 Claude가 그 힌트를 받아들였는지가 기록됩니다. 스킬 힌트가 켜져 있으면 힌트를 함께 보낼 수 있도록, 프롬프트를 보낸 뒤 Jev를 기다립니다(최대 1.5초).
 
+### 선택 가능한 모델과 스킬
+
+**모델**: sommelier는 아래 세 모델 중에서만 고르며, effort는 medium 또는 high만 사용합니다.
+
+| 모델 | 전송하는 모델 ID | sommelier가 선택하는 경우 |
+|---|---|---|
+| haiku | `claude-haiku-5-5` | L0. 대화가 30k tokens를 넘으면 사용하지 않습니다 |
+| sonnet | `claude-sonnet-5-5` | L1. haiku 대화가 길어졌을 때도 이 모델로 바꿉니다 |
+| opus | `claude-opus-5-5` | L2(base, medium), L3, 깊은 사고 요청(high). 고위험 요청은 최소 base를 사용합니다 |
+
+날짜 접미사가 붙은 ID(예: `claude-sonnet-5-5-20261001`)도 인식합니다. 선택 범위를 바꾸려면:
+
+- **범위 좁히기**: `/somm config allowed sonnet-opus`로 haiku를 쓰지 않게 합니다. `opus-opus`는 opus만 사용합니다
+- **L2 단계 바꾸기**: `/somm config base sonnet` 또는 `opus:high`. `allowed` 범위 안이라면 어떤 모델이든 medium／high를 지정할 수 있습니다
+- **이 주제의 모델 지정**: 프롬프트 앞에 `somm:haiku`, `somm:sonnet`, `somm:opus`를 붙입니다(effort는 medium 고정, `allowed` 제한을 받지 않음)
+- **전부 직접 결정**: `/model`로 세션 모델을 바꾸면, Default로 되돌릴 때까지 sommelier는 모델을 바꾸지 않습니다
+
+**스킬**(스킬 힌트가 켜져 있을 때): 후보는 세션에서 자동으로 정해지며 따로 등록할 필요가 없습니다.
+
+- **후보가 되는 스킬**: Claude가 직접 호출할 수 있고 설명이 있는 스킬, 즉 `/skills`에 표시되며 수동 전용이 아닌 스킬입니다. 플러그인의 스킬은 `plugin:skill` 형식으로 씁니다(예: `mattpocock-skills:tdd`)
+- **개수**: 이름순으로 최대 255개까지이며 나머지는 제외됩니다. 2개 미만이면 Jev에 스킬 질문을 하지 않습니다
+- **일부만 힌트**: `/somm config skills-allow mattpocock-skills:tdd,grilling`. `none`으로 비우면 전체로 돌아갑니다
+- **일부 제외**: `/somm config skills-exclude cost-today`. 두 목록에 모두 있는 스킬은 제외됩니다
+- **효과 확인**: `/somm log`에 요청마다 어떤 스킬을 힌트로 제시했는지, Claude가 받아들였는지가 기록됩니다
+
 **sommelier가 모델을 바꾸지 않는 경우:**
 - 꺼져 있거나 현재 프로젝트에서 꺼져 있을 때
 - 첫 전송 전의 동의 질문에 동의하지 않았을 때

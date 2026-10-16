@@ -172,6 +172,31 @@ Remove-Variable key, s
 
 **スキルヒント**（ベータ版、デフォルトはオフ。`/somm config skills on` で有効にします）：モデルと合わせて、Jev はそのリクエストにスキルが必要か、どのスキルが最も合うかを判定します。十分な確信がある場合（「スキルが必要」≥ 0.30 かつ最上位のスキル ≥ 0.5）、sommelier はプロンプトの横に、このリクエストはそのスキルに向いているかもしれない（外れている可能性もあります）という Claude 向けのメモを添えます。あくまで提案なので、合わない場合 Claude は無視し、モデルが変わることもありません。候補は、このセッションで Claude が自分で呼び出せて説明文を持つスキルで、`skills-allow` と `skills-exclude` で絞り込めます。同じスキルのヒントは話題ごとに 1 回だけで、次に出るのは新しい話題か `/clear` の後です。ヒントはスピナーに `💡tdd` のように表示され、Claude がそれを採用したかどうかは `/somm log` に記録されます。スキルヒントがオンの場合、ヒントを一緒に届けられるよう、プロンプトは送信後に Jev を待ちます（最大 1.5 秒）。
 
+### 選べるモデルとスキル
+
+**モデル**：sommelier が選ぶのは下の 3 つのモデルだけで、effort は medium か high のみです。
+
+| モデル | 送信するモデル ID | sommelier が選ぶとき |
+|---|---|---|
+| haiku | `claude-haiku-5-5` | L0。会話が 30k tokens を超えたら使いません |
+| sonnet | `claude-sonnet-5-5` | L1。haiku の会話が長くなったときもこちらに切り替えます |
+| opus | `claude-opus-5-5` | L2（base、medium）、L3 と深く考えるよう求められたとき（high）。高リスクのリクエストは少なくとも base を使います |
+
+日付サフィックス付きの ID（例：`claude-sonnet-5-5-20261001`）も認識します。選べる範囲を変えるには：
+
+- **範囲を狭める**：`/somm config allowed sonnet-opus` で haiku を使わなくなります。`opus-opus` なら opus のみです
+- **L2 の段を変える**：`/somm config base sonnet` や `opus:high`。`allowed` の範囲内なら、どのモデルでも medium／high を指定できます
+- **この話題のモデルを指定する**：プロンプトの先頭に `somm:haiku`、`somm:sonnet`、`somm:opus` と書きます（effort は medium 固定で、`allowed` の制限を受けません）
+- **すべて自分で決める**：`/model` でセッションのモデルを切り替えると、Default に戻すまで sommelier はモデルを変えません
+
+**スキル**（スキルヒントがオンのとき）：候補はセッションから自動で決まり、登録は不要です。
+
+- **候補になるもの**：Claude が自分で呼び出せて説明文を持つスキル、つまり `/skills` に表示され、手動専用になっていないものです。プラグインのスキルは `plugin:skill` と書きます（例：`mattpocock-skills:tdd`）
+- **数**：名前順に最大 255 個まで、それ以降は除外されます。2 個未満のときは Jev にスキルの質問をしません
+- **一部だけヒントを出す**：`/somm config skills-allow mattpocock-skills:tdd,grilling`。`none` でクリアするとすべてに戻ります
+- **一部を除外する**：`/somm config skills-exclude cost-today`。両方のリストにあるスキルは除外されます
+- **効果を確かめる**：`/somm log` に、リクエストごとにどのスキルをヒントしたか、Claude が採用したかが記録されます
+
 **sommelier がモデルを変えないケース：**
 - オフになっている、または現在のプロジェクトでオフにされている
 - 初回送信前の同意確認に同意しなかった
